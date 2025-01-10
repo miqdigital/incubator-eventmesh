@@ -17,30 +17,30 @@
 
 package org.apache.eventmesh.runtime.boot;
 
-import org.apache.eventmesh.common.config.ConfigurationWrapper;
+import static org.apache.eventmesh.common.Constants.HTTP;
+
+import org.apache.eventmesh.common.config.ConfigService;
 import org.apache.eventmesh.common.utils.ConfigurationContextUtil;
 import org.apache.eventmesh.runtime.configuration.EventMeshHTTPConfiguration;
-import org.apache.eventmesh.runtime.registry.Registry;
+
+import lombok.Getter;
 
 public class EventMeshHttpBootstrap implements EventMeshBootstrap {
 
-    private final EventMeshHTTPConfiguration eventMeshHttpConfiguration;
-
+    @Getter
     public EventMeshHTTPServer eventMeshHttpServer;
+
+    private final EventMeshHTTPConfiguration eventMeshHttpConfiguration;
 
     private final EventMeshServer eventMeshServer;
 
-    private final Registry registry;
-
-    public EventMeshHttpBootstrap(EventMeshServer eventMeshServer,
-                                  ConfigurationWrapper configurationWrapper,
-                                  Registry registry) {
+    public EventMeshHttpBootstrap(final EventMeshServer eventMeshServer) {
         this.eventMeshServer = eventMeshServer;
-        this.registry = registry;
-        this.eventMeshHttpConfiguration = new EventMeshHTTPConfiguration(configurationWrapper);
-        eventMeshHttpConfiguration.init();
-        ConfigurationContextUtil.putIfAbsent(ConfigurationContextUtil.HTTP, eventMeshHttpConfiguration);
 
+        ConfigService configService = ConfigService.getInstance();
+        this.eventMeshHttpConfiguration = configService.buildConfigInstance(EventMeshHTTPConfiguration.class);
+
+        ConfigurationContextUtil.putIfAbsent(HTTP, eventMeshHttpConfiguration);
     }
 
     @Override
@@ -48,20 +48,22 @@ public class EventMeshHttpBootstrap implements EventMeshBootstrap {
         // server init
         if (eventMeshHttpConfiguration != null) {
             eventMeshHttpServer = new EventMeshHTTPServer(eventMeshServer, eventMeshHttpConfiguration);
+            eventMeshHttpServer.init();
         }
     }
 
     @Override
     public void start() throws Exception {
         // server start
-        if (eventMeshHttpConfiguration != null) {
+        if (eventMeshHttpServer != null) {
             eventMeshHttpServer.start();
         }
     }
 
     @Override
     public void shutdown() throws Exception {
-        if (eventMeshHttpConfiguration != null) {
+        // server shutdown
+        if (eventMeshHttpServer != null) {
             eventMeshHttpServer.shutdown();
         }
     }

@@ -32,15 +32,16 @@ import org.apache.eventmesh.protocol.api.exception.ProtocolHandleException;
 import org.apache.eventmesh.protocol.http.resolver.HttpRequestProtocolResolver;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import io.cloudevents.CloudEvent;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-
 
 /**
  * CloudEvents protocol adaptor, used to transform CloudEvents message to CloudEvents message.
@@ -77,7 +78,7 @@ public class HttpProtocolAdaptor<T extends ProtocolTransportObject>
     @Override
     public List<CloudEvent> toBatchCloudEvent(ProtocolTransportObject protocol)
         throws ProtocolHandleException {
-        return null;
+        return Collections.emptyList();
     }
 
     @Override
@@ -96,13 +97,16 @@ public class HttpProtocolAdaptor<T extends ProtocolTransportObject>
         }
         httpEventWrapper.setSysHeaderMap(sysHeaderMap);
         // ce data
-        if (null != cloudEvent.getData()) {
-            Map<String, Object> dataContentMap = JsonUtils.deserialize(new String(cloudEvent.getData().toBytes(), Constants.DEFAULT_CHARSET),
+        if (cloudEvent.getData() != null) {
+            Map<String, Object> dataContentMap = JsonUtils.parseTypeReferenceObject(
+                new String(Objects.requireNonNull(cloudEvent.getData()).toBytes(), Constants.DEFAULT_CHARSET),
                 new TypeReference<Map<String, Object>>() {
                 });
-            String requestHeader = JsonUtils.serialize(dataContentMap.get(CONSTANTS_KEY_HEADERS));
-            byte[] requestBody = JsonUtils.serialize(dataContentMap.get(CONSTANTS_KEY_BODY)).getBytes(StandardCharsets.UTF_8);
-            Map<String, Object> requestHeaderMap = JsonUtils.deserialize(requestHeader, new TypeReference<Map<String, Object>>() {
+            String requestHeader = JsonUtils.toJSONString(
+                Objects.requireNonNull(dataContentMap, "Headers must not be null").get(CONSTANTS_KEY_HEADERS));
+            byte[] requestBody = Objects.requireNonNull(
+                JsonUtils.toJSONString(dataContentMap.get(CONSTANTS_KEY_BODY)), "Body must not be null").getBytes(StandardCharsets.UTF_8);
+            Map<String, Object> requestHeaderMap = JsonUtils.parseTypeReferenceObject(requestHeader, new TypeReference<Map<String, Object>>() {
             });
             String requestURI = dataContentMap.get(CONSTANTS_KEY_PATH).toString();
             String httpMethod = dataContentMap.get(CONSTANTS_KEY_METHOD).toString();

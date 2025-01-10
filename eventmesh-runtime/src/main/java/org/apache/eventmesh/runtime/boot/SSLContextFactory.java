@@ -1,24 +1,23 @@
 /*
- * Licensed to Apache Software Foundation (ASF) under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Apache Software Foundation (ASF) licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package org.apache.eventmesh.runtime.boot;
 
+import org.apache.eventmesh.runtime.configuration.EventMeshAdminConfiguration;
 import org.apache.eventmesh.runtime.configuration.EventMeshHTTPConfiguration;
 import org.apache.eventmesh.runtime.constants.EventMeshConstants;
 
@@ -40,27 +39,21 @@ import java.security.cert.CertificateException;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class SSLContextFactory {
-    private static String protocol = "TLSv1.1";
 
-    private static String fileName;
-
-    private static String password;
-
+    /**
+     * {@link EventMeshAdminConfiguration} will be parsed into {@link EventMeshHTTPConfiguration}.
+     */
     public static SSLContext getSslContext(final EventMeshHTTPConfiguration eventMeshHttpConfiguration)
-            throws NoSuchAlgorithmException, KeyStoreException, CertificateException, IOException,
-            UnrecoverableKeyException, KeyManagementException {
+        throws NoSuchAlgorithmException, KeyStoreException, CertificateException, IOException, UnrecoverableKeyException, KeyManagementException {
+
+        String protocol = eventMeshHttpConfiguration.getEventMeshServerSSLProtocol();
+        String fileName = eventMeshHttpConfiguration.getEventMeshServerSSLCer();
+        String password = eventMeshHttpConfiguration.getEventMeshServerSSLPass();
         SSLContext sslContext;
 
-        try (InputStream inputStream = Files.newInputStream(Paths.get(EventMeshConstants.EVENTMESH_CONF_HOME
-                + File.separator
-                + fileName), StandardOpenOption.READ)) {
-            protocol = eventMeshHttpConfiguration.eventMeshServerSSLProtocol;
-            fileName = eventMeshHttpConfiguration.eventMeshServerSSLCer;
-            password = eventMeshHttpConfiguration.eventMeshServerSSLPass;
+        try (InputStream inputStream = Files.newInputStream(Paths.get(EventMeshConstants.EVENTMESH_CONF_HOME + File.separator + fileName),
+            StandardOpenOption.READ)) {
 
             char[] filePass = StringUtils.isNotBlank(password) ? password.toCharArray() : new char[0];
             final KeyStore keyStore = KeyStore.getInstance("JKS");

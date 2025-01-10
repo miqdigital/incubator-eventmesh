@@ -27,9 +27,9 @@ import java.util.Objects;
 public final class AssertUtils {
 
     /**
-     * assert obj not null
+     * Assert obj is not null
      *
-     * @param obj     obj
+     * @param obj  Object to test
      * @param message error message
      */
     public static void notNull(final Object obj, final String message) {
@@ -37,25 +37,25 @@ public final class AssertUtils {
     }
 
     /**
-     * assert test is true
+     * Assert condition is true
      *
-     * @param test    test
+     * @param condition  boolean to test
      * @param message error message
      */
-    public static void isTrue(final Boolean test, final String message) {
-        if (!Boolean.TRUE.equals(test)) {
+    public static void isTrue(final Boolean condition, final String message) {
+        if (!Boolean.TRUE.equals(condition)) {
             throw new IllegalArgumentException(message);
         }
     }
 
     /**
-     * assert str is not black
-     * @param str str
-     * @param message message
+     * Assert str is not blank
+     *
+     * @param str  String to test
+     * @param message error message
      */
-    public static void notBlack(final String str, final String message) {
+    public static void notBlank(final String str, final String message) {
         isTrue(StringUtils.isNoneBlank(str), message);
     }
-
 
 }

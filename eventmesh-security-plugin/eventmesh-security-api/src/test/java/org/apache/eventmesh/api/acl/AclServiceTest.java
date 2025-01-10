@@ -19,11 +19,9 @@ package org.apache.eventmesh.api.acl;
 
 import org.apache.eventmesh.api.exception.AclException;
 
-import java.util.Properties;
-
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 public class AclServiceTest {
 
@@ -45,94 +43,66 @@ public class AclServiceTest {
         }
 
         @Override
-        public void doAclCheckInConnect(Properties aclProperties) throws AclException {
+        public void doAclCheckInConnect(AclProperties aclProperties) throws AclException {
 
         }
 
         @Override
-        public void doAclCheckInHeartbeat(Properties aclProperties) throws AclException {
+        public void doAclCheckInHeartbeat(AclProperties aclProperties) throws AclException {
 
         }
 
         @Override
-        public void doAclCheckInSend(Properties aclProperties) throws AclException {
+        public void doAclCheckInSend(AclProperties aclProperties) throws AclException {
 
         }
 
         @Override
-        public void doAclCheckInReceive(Properties aclProperties) throws AclException {
+        public void doAclCheckInReceive(AclProperties aclProperties) throws AclException {
 
         }
     }
 
     private static AclService service;
 
-    @BeforeClass
+    @BeforeAll
     public static void beforeClass() {
         service = new DemoAclService();
     }
 
     @Test
     public void testInit() {
-        try {
-            service.init();
-        } catch (AclException e) {
-            Assert.fail(e.getMessage());
-        }
+        Assertions.assertDoesNotThrow(service::init);
     }
 
     @Test
     public void testStart() {
-        try {
-            service.start();
-        } catch (AclException e) {
-            Assert.fail(e.getMessage());
-        }
+        Assertions.assertDoesNotThrow(service::start);
     }
 
     @Test
     public void testShutdown() {
-        try {
-            service.shutdown();
-        } catch (AclException e) {
-            Assert.fail(e.getMessage());
-        }
+        Assertions.assertDoesNotThrow(service::shutdown);
     }
 
     @Test
     public void testDoAclCheckInConnect() {
-        try {
-            service.doAclCheckInConnect(new Properties());
-        } catch (AclException e) {
-            Assert.fail(e.getMessage());
-        }
+        Assertions.assertDoesNotThrow(() -> service.doAclCheckInConnect(new AclProperties()));
     }
 
     @Test
     public void testDoAclCheckInHeartbeat() {
-        try {
-            service.doAclCheckInHeartbeat(new Properties());
-        } catch (AclException e) {
-            Assert.fail(e.getMessage());
-        }
+        Assertions.assertDoesNotThrow(() -> service.doAclCheckInHeartbeat(new AclProperties()));
     }
 
     @Test
     public void testDoAclCheckInSend() {
-        try {
-            service.doAclCheckInSend(new Properties());
-        } catch (AclException e) {
-            Assert.fail(e.getMessage());
-        }
+        Assertions.assertDoesNotThrow(() -> service.doAclCheckInSend(new AclProperties()));
     }
 
     @Test
     public void testDoAclCheckInReceive() {
-        try {
-            service.doAclCheckInReceive(new Properties());
-        } catch (AclException e) {
-            Assert.fail(e.getMessage());
-        }
+        Assertions.assertDoesNotThrow(() -> service.doAclCheckInReceive(new AclProperties()));
     }
 
 }

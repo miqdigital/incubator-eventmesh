@@ -17,31 +17,36 @@
 
 package org.apache.eventmesh.runtime.boot;
 
-import org.apache.eventmesh.common.config.ConfigurationWrapper;
+import static org.apache.eventmesh.common.Constants.GRPC;
+
+import org.apache.eventmesh.common.config.ConfigService;
 import org.apache.eventmesh.common.utils.ConfigurationContextUtil;
 import org.apache.eventmesh.runtime.configuration.EventMeshGrpcConfiguration;
-import org.apache.eventmesh.runtime.registry.Registry;
+
+import lombok.Getter;
 
 public class EventMeshGrpcBootstrap implements EventMeshBootstrap {
 
     private final EventMeshGrpcConfiguration eventMeshGrpcConfiguration;
 
+    @Getter
     private EventMeshGrpcServer eventMeshGrpcServer;
 
-    private final Registry registry;
+    private final EventMeshServer eventMeshServer;
 
-    public EventMeshGrpcBootstrap(ConfigurationWrapper configurationWrapper, Registry registry) {
-        this.registry = registry;
-        this.eventMeshGrpcConfiguration = new EventMeshGrpcConfiguration(configurationWrapper);
-        eventMeshGrpcConfiguration.init();
-        ConfigurationContextUtil.putIfAbsent(ConfigurationContextUtil.GRPC, eventMeshGrpcConfiguration);
+    public EventMeshGrpcBootstrap(final EventMeshServer eventMeshServer) {
+        this.eventMeshServer = eventMeshServer;
+        ConfigService configService = ConfigService.getInstance();
+        this.eventMeshGrpcConfiguration = configService.buildConfigInstance(EventMeshGrpcConfiguration.class);
+
+        ConfigurationContextUtil.putIfAbsent(GRPC, eventMeshGrpcConfiguration);
     }
 
     @Override
     public void init() throws Exception {
         // server init
         if (eventMeshGrpcConfiguration != null) {
-            eventMeshGrpcServer = new EventMeshGrpcServer(eventMeshGrpcConfiguration, registry);
+            eventMeshGrpcServer = new EventMeshGrpcServer(this.eventMeshServer, this.eventMeshGrpcConfiguration);
             eventMeshGrpcServer.init();
         }
     }

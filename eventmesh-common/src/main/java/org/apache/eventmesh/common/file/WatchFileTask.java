@@ -17,6 +17,7 @@
 
 package org.apache.eventmesh.common.file;
 
+import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
@@ -28,12 +29,10 @@ import java.nio.file.WatchService;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public class WatchFileTask extends Thread {
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(WatchFileTask.class);
 
     private static final FileSystem FILE_SYSTEM = FileSystems.getDefault();
 
@@ -55,11 +54,21 @@ public class WatchFileTask extends Thread {
             throw new IllegalArgumentException("must be a file directory : " + directoryPath);
         }
 
-        try (WatchService watchService = FILE_SYSTEM.newWatchService()) {
-            this.watchService = watchService;
+        try {
+            this.watchService = FILE_SYSTEM.newWatchService();
+        } catch (IOException ex) {
+            throw new RuntimeException("WatchService initialization fail", ex);
+        }
+
+        try {
             path.register(this.watchService, StandardWatchEventKinds.OVERFLOW, StandardWatchEventKinds.ENTRY_MODIFY,
-                    StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_DELETE);
-        } catch (Exception ex) {
+                StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_DELETE);
+        } catch (IOException ex) {
+            try {
+                this.watchService.close();
+            } catch (IOException e) {
+                ex.addSuppressed(e);
+            }
             throw new UnsupportedOperationException("WatchService registry fail", ex);
         }
     }
@@ -72,6 +81,11 @@ public class WatchFileTask extends Thread {
 
     public void shutdown() {
         watch = false;
+        try {
+            this.watchService.close();
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to close WatchService", e);
+        }
     }
 
     @Override
@@ -89,9 +103,7 @@ public class WatchFileTask extends Thread {
                 for (WatchEvent<?> event : events) {
                     WatchEvent.Kind<?> kind = event.kind();
                     if (kind.equals(StandardWatchEventKinds.OVERFLOW)) {
-                        if (LOGGER.isWarnEnabled()) {
-                            LOGGER.warn("[WatchFileTask] file overflow: {}", event.context());
-                        }
+                        log.warn("[WatchFileTask] file overflow: {}", event.context());
                         continue;
                     }
                     precessWatchEvent(event);
@@ -99,12 +111,10 @@ public class WatchFileTask extends Thread {
             } catch (InterruptedException ex) {
                 boolean interrupted = Thread.interrupted();
                 if (interrupted) {
-                    if (LOGGER.isDebugEnabled()) {
-                        LOGGER.debug("[WatchFileTask] file watch is interrupted");
-                    }
+                    log.debug("[WatchFileTask] file watch is interrupted");
                 }
             } catch (Exception ex) {
-                LOGGER.error("[WatchFileTask] an exception occurred during file listening : ", ex);
+                log.error("[WatchFileTask] an exception occurred during file listening : ", ex);
             }
         }
     }
@@ -121,7 +131,7 @@ public class WatchFileTask extends Thread {
                 }
             }
         } catch (Exception ex) {
-            LOGGER.error("[WatchFileTask] file change event callback error : ", ex);
+            log.error("[WatchFileTask] file change event callback error : ", ex);
         }
     }
 }

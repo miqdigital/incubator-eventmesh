@@ -17,29 +17,49 @@
 
 package org.apache.eventmesh.runtime.core.consumer;
 
+import org.apache.eventmesh.api.meta.config.EventMeshMetaConfig;
 import org.apache.eventmesh.common.protocol.SubscriptionItem;
+import org.apache.eventmesh.common.utils.JsonUtils;
 import org.apache.eventmesh.runtime.core.consumergroup.ConsumerGroupConf;
+import org.apache.eventmesh.runtime.core.consumergroup.ConsumerGroupMetadata;
 import org.apache.eventmesh.runtime.core.consumergroup.ConsumerGroupTopicConf;
+import org.apache.eventmesh.runtime.core.consumergroup.ConsumerGroupTopicMetadata;
 import org.apache.eventmesh.runtime.core.protocol.http.processor.inf.Client;
+import org.apache.eventmesh.runtime.meta.MetaStorage;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public class SubscriptionManager {
-    private static final Logger logger = LoggerFactory.getLogger(SubscriptionManager.class);
-    private final ConcurrentHashMap<String /**group*/, ConsumerGroupConf> localConsumerGroupMapping =
-            new ConcurrentHashMap<>();
 
-    private final ConcurrentHashMap<String /**group@topic*/, List<Client>> localClientInfoMapping =
-            new ConcurrentHashMap<>();
+    private final boolean isEventMeshServerMetaStorageEnable;
+
+    private final MetaStorage metaStorage;
+
+    /**
+     * key: group
+     */
+    private final ConcurrentHashMap<String, ConsumerGroupConf> localConsumerGroupMapping = new ConcurrentHashMap<>(64);
+
+    /**
+     * key: group@topic
+     */
+    private final ConcurrentHashMap<String, List<Client>> localClientInfoMapping = new ConcurrentHashMap<>(64);
+
+    public SubscriptionManager(boolean isEventMeshServerMetaStorageEnable, MetaStorage metaStorage) {
+        this.isEventMeshServerMetaStorageEnable = isEventMeshServerMetaStorageEnable;
+        this.metaStorage = metaStorage;
+    }
 
     public ConcurrentHashMap<String, ConsumerGroupConf> getLocalConsumerGroupMapping() {
         return localConsumerGroupMapping;
@@ -50,7 +70,7 @@ public class SubscriptionManager {
     }
 
     public void registerClient(final ClientInfo clientInfo, final String consumerGroup,
-                               final List<SubscriptionItem> subscriptionItems, final String url) {
+        final List<SubscriptionItem> subscriptionItems, final String url) {
         for (final SubscriptionItem subscription : subscriptionItems) {
             final String groupTopicKey = consumerGroup + "@" + subscription.getTopic();
 
@@ -63,7 +83,7 @@ public class SubscriptionManager {
 
             boolean isContains = false;
             for (final Client localClient : localClients) {
-                //TODO: compare the whole Client would be better?
+                // TODO: compare the whole Client would be better?
                 if (StringUtils.equals(localClient.getUrl(), url)) {
                     isContains = true;
                     localClient.setLastUpTime(new Date());
@@ -88,13 +108,13 @@ public class SubscriptionManager {
     }
 
     public void updateSubscription(ClientInfo clientInfo, String consumerGroup,
-                                   String url, List<SubscriptionItem> subscriptionList) {
+        String url, List<SubscriptionItem> subscriptionList) {
         for (final SubscriptionItem subscription : subscriptionList) {
             final List<Client> groupTopicClients = localClientInfoMapping
-                    .get(consumerGroup + "@" + subscription.getTopic());
+                .get(consumerGroup + "@" + subscription.getTopic());
 
             if (CollectionUtils.isEmpty(groupTopicClients)) {
-                logger.error("group {} topic {} clients is empty", consumerGroup, subscription);
+                log.error("group {} topic {} clients is empty", consumerGroup, subscription);
             }
 
             ConsumerGroupConf consumerGroupConf = localConsumerGroupMapping.get(consumerGroup);
@@ -102,20 +122,20 @@ public class SubscriptionManager {
                 // new subscription
                 ConsumerGroupConf prev = localConsumerGroupMapping.putIfAbsent(consumerGroup, new ConsumerGroupConf(consumerGroup));
                 if (prev == null) {
-                    logger.info("add new subscription, consumer group: {}", consumerGroup);
+                    log.info("add new subscription, consumer group: {}", consumerGroup);
                 }
                 consumerGroupConf = localConsumerGroupMapping.get(consumerGroup);
             }
 
             ConsumerGroupTopicConf consumerGroupTopicConf = consumerGroupConf.getConsumerGroupTopicConf()
-                    .get(subscription.getTopic());
+                .get(subscription.getTopic());
             if (consumerGroupTopicConf == null) {
                 consumerGroupConf.getConsumerGroupTopicConf().computeIfAbsent(subscription.getTopic(), (topic) -> {
                     ConsumerGroupTopicConf newTopicConf = new ConsumerGroupTopicConf();
                     newTopicConf.setConsumerGroup(consumerGroup);
                     newTopicConf.setTopic(topic);
                     newTopicConf.setSubscriptionItem(subscription);
-                    logger.info("add new {}", newTopicConf);
+                    log.info("add new {}", newTopicConf);
                     return newTopicConf;
                 });
                 consumerGroupTopicConf = consumerGroupConf.getConsumerGroupTopicConf().get(subscription.getTopic());
@@ -125,8 +145,47 @@ public class SubscriptionManager {
             if (!consumerGroupTopicConf.getIdcUrls().containsKey(clientInfo.getIdc())) {
                 consumerGroupTopicConf.getIdcUrls().putIfAbsent(clientInfo.getIdc(), new ArrayList<>());
             }
-            //TODO: idcUrl list is not thread-safe
+            // TODO: idcUrl list is not thread-safe
             consumerGroupTopicConf.getIdcUrls().get(clientInfo.getIdc()).add(url);
+        }
+    }
+
+    public void updateMetaData() {
+        if (!isEventMeshServerMetaStorageEnable) {
+            return;
+        }
+        try {
+            Map<String, String> metadata = new HashMap<>(1 << 4);
+            for (Map.Entry<String, ConsumerGroupConf> consumerGroupMap : getLocalConsumerGroupMapping().entrySet()) {
+                String consumerGroupKey = consumerGroupMap.getKey();
+                ConsumerGroupConf consumerGroupConf = consumerGroupMap.getValue();
+
+                ConsumerGroupMetadata consumerGroupMetadata = new ConsumerGroupMetadata();
+                consumerGroupMetadata.setConsumerGroup(consumerGroupKey);
+
+                Map<String, ConsumerGroupTopicMetadata> consumerGroupTopicMetadataMap =
+                    new HashMap<>(1 << 4);
+                for (Map.Entry<String, ConsumerGroupTopicConf> consumerGroupTopicConfEntry : consumerGroupConf.getConsumerGroupTopicConf()
+                    .entrySet()) {
+                    final String topic = consumerGroupTopicConfEntry.getKey();
+                    ConsumerGroupTopicConf consumerGroupTopicConf = consumerGroupTopicConfEntry.getValue();
+                    ConsumerGroupTopicMetadata consumerGroupTopicMetadata = new ConsumerGroupTopicMetadata();
+                    consumerGroupTopicMetadata.setConsumerGroup(consumerGroupTopicConf.getConsumerGroup());
+                    consumerGroupTopicMetadata.setTopic(consumerGroupTopicConf.getTopic());
+                    consumerGroupTopicMetadata.setUrls(consumerGroupTopicConf.getUrls());
+
+                    consumerGroupTopicMetadataMap.put(topic, consumerGroupTopicMetadata);
+                }
+
+                consumerGroupMetadata.setConsumerGroupTopicMetadataMap(consumerGroupTopicMetadataMap);
+                metadata.put(consumerGroupKey, JsonUtils.toJSONString(consumerGroupMetadata));
+            }
+            metadata.put(EventMeshMetaConfig.EVENT_MESH_PROTO, "http");
+
+            metaStorage.updateMetaData(metadata);
+
+        } catch (Exception e) {
+            log.error("update eventmesh metadata error", e);
         }
     }
 }

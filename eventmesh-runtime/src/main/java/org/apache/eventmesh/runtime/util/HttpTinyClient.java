@@ -17,8 +17,6 @@
 
 package org.apache.eventmesh.runtime.util;
 
-import org.apache.eventmesh.runtime.constants.EventMeshConstants;
-
 import org.apache.commons.io.IOUtils;
 
 import java.io.IOException;
@@ -27,6 +25,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
@@ -34,9 +33,9 @@ import java.util.Objects;
 public class HttpTinyClient {
 
     public static HttpResult httpGet(String url, List<String> headers, List<String> paramValues,
-                                     String encoding, long readTimeoutMs) throws IOException {
+        String encoding, long readTimeoutMs) throws IOException {
         String encodedContent = encodingParams(paramValues, encoding);
-        url += (null == encodedContent) ? "" : ("?" + encodedContent);
+        url += (encodedContent == null) ? "" : ("?" + encodedContent);
 
         HttpURLConnection conn = null;
         try {
@@ -63,14 +62,14 @@ public class HttpTinyClient {
         }
     }
 
-    private static String encodingParams(List<String> paramValues, String encoding)
-            throws UnsupportedEncodingException {
+    private static String encodingParams(Collection<String> paramValues, String encoding)
+        throws UnsupportedEncodingException {
         StringBuilder sb = new StringBuilder();
-        if (null == paramValues) {
+        if (paramValues == null) {
             return null;
         }
 
-        for (Iterator<String> iter = paramValues.iterator(); iter.hasNext(); ) {
+        for (Iterator<String> iter = paramValues.iterator(); iter.hasNext();) {
             sb.append(iter.next()).append("=");
             sb.append(URLEncoder.encode(iter.next(), encoding));
             if (iter.hasNext()) {
@@ -80,9 +79,9 @@ public class HttpTinyClient {
         return sb.toString();
     }
 
-    private static void setHeaders(HttpURLConnection conn, List<String> headers, String encoding) {
-        if (null != headers) {
-            for (Iterator<String> iter = headers.iterator(); iter.hasNext(); ) {
+    private static void setHeaders(HttpURLConnection conn, Collection<String> headers, String encoding) {
+        if (headers != null) {
+            for (Iterator<String> iter = headers.iterator(); iter.hasNext();) {
                 conn.addRequestProperty(iter.next(), iter.next());
             }
         }
@@ -96,7 +95,7 @@ public class HttpTinyClient {
      * @return the http response of given http post request
      */
     public static HttpResult httpPost(String url, List<String> headers, List<String> paramValues,
-                                      String encoding, long readTimeoutMs) throws IOException {
+        String encoding, long readTimeoutMs) throws IOException {
         String encodedContent = encodingParams(paramValues, encoding);
 
         HttpURLConnection conn = null;
@@ -113,17 +112,18 @@ public class HttpTinyClient {
 
             int respCode = conn.getResponseCode();
             String resp = HttpURLConnection.HTTP_OK == respCode ? IOUtils.toString(conn.getInputStream(), encoding)
-                    : IOUtils.toString(conn.getErrorStream(), encoding);
+                : IOUtils.toString(conn.getErrorStream(), encoding);
 
             return new HttpResult(respCode, resp);
         } finally {
-            if (null != conn) {
+            if (conn != null) {
                 conn.disconnect();
             }
         }
     }
 
     public static class HttpResult {
+
         private final transient int code;
         private final transient String content;
 

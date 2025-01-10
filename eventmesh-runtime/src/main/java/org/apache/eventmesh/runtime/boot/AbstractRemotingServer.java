@@ -17,133 +17,106 @@
 
 package org.apache.eventmesh.runtime.boot;
 
+import org.apache.eventmesh.common.EventMeshThreadFactory;
+import org.apache.eventmesh.common.utils.SystemUtils;
 import org.apache.eventmesh.common.utils.ThreadUtils;
+import org.apache.eventmesh.runtime.core.protocol.producer.ProducerManager;
 
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.concurrent.TimeUnit;
 
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.epoll.Epoll;
+import io.netty.channel.epoll.EpollEventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.util.concurrent.EventExecutorGroup;
 
-public abstract class AbstractRemotingServer {
-    private static final Logger LOGGER = LoggerFactory.getLogger(AbstractRemotingServer.class);
+import lombok.Getter;
+import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 
-    private static final int DEFAULT_SLEEP_SECONDS = 30;
-
-    private EventLoopGroup bossGroup;
-
-    private EventLoopGroup ioGroup;
-
-    private EventLoopGroup workerGroup;
-
-    private int port;
+/**
+ * The most basic server
+ */
+@Slf4j
+@Getter
+public abstract class AbstractRemotingServer implements RemotingServer {
 
     private static final int MAX_THREADS = Runtime.getRuntime().availableProcessors();
+    private static final int DEFAULT_SLEEP_SECONDS = 30;
 
-    public EventLoopGroup getBossGroup() {
-        return bossGroup;
+    @Setter
+    private EventLoopGroup bossGroup;
+
+    @Setter
+    private EventLoopGroup ioGroup;
+
+    @Setter
+    private EventExecutorGroup workerGroup;
+
+    protected ProducerManager producerManager;
+
+    @Setter
+    private int port;
+
+    protected void buildBossGroup(final String threadPrefix) {
+        if (useEpoll()) {
+            bossGroup = new EpollEventLoopGroup(1, new EventMeshThreadFactory(threadPrefix + "NettyEpoll-Boss", true));
+        } else {
+            bossGroup = new NioEventLoopGroup(1, new EventMeshThreadFactory(threadPrefix + "NettyNio-Boss", true));
+        }
+
     }
 
-    public EventLoopGroup getIoGroup() {
-        return ioGroup;
+    private void buildIOGroup(final String threadPrefix) {
+        if (useEpoll()) {
+            ioGroup = new EpollEventLoopGroup(MAX_THREADS, new EventMeshThreadFactory(threadPrefix + "-NettyEpoll-IO"));
+        } else {
+            ioGroup = new NioEventLoopGroup(MAX_THREADS, new EventMeshThreadFactory(threadPrefix + "-NettyNio-IO"));
+        }
     }
 
-    public EventLoopGroup getWorkerGroup() {
-        return workerGroup;
+    private void buildWorkerGroup(final String threadPrefix) {
+        workerGroup = new NioEventLoopGroup(MAX_THREADS, new EventMeshThreadFactory(threadPrefix + "-worker"));
     }
 
-    public int getPort() {
-        return port;
-    }
-
-    public void setBossGroup(final EventLoopGroup bossGroup) {
-        this.bossGroup = bossGroup;
-    }
-
-    public void setIoGroup(final EventLoopGroup ioGroup) {
-        this.ioGroup = ioGroup;
-    }
-
-    public void setWorkerGroup(final EventLoopGroup workerGroup) {
-        this.workerGroup = workerGroup;
-    }
-
-    public void setPort(final int port) {
-        this.port = port;
-    }
-
-    private EventLoopGroup initBossGroup(final String threadPrefix) {
-        bossGroup = new NioEventLoopGroup(1, new ThreadFactory() {
-            private final AtomicInteger count = new AtomicInteger(0);
-
-            @Override
-            public Thread newThread(final Runnable r) {
-                final Thread t = new Thread(r, threadPrefix + "-boss-" + count.incrementAndGet());
-                t.setDaemon(true);
-                return t;
-            }
-        });
-
-        return bossGroup;
-    }
-
-    private EventLoopGroup initIOGroup(final String threadPrefix, final int threadNum) {
-        ioGroup = new NioEventLoopGroup(threadNum, new ThreadFactory() {
-            private final AtomicInteger count = new AtomicInteger(0);
-
-            @Override
-            public Thread newThread(final Runnable r) {
-                return new Thread(r, threadPrefix + "-io-" + count.incrementAndGet());
-            }
-        });
-        return ioGroup;
-    }
-
-    private EventLoopGroup initWorkerGroup(final String threadPrefix, final int threadNum) {
-        workerGroup = new NioEventLoopGroup(threadNum, new ThreadFactory() {
-            private final AtomicInteger count = new AtomicInteger(0);
-
-            @Override
-            public Thread newThread(final Runnable r) {
-                return new Thread(r, threadPrefix + "-worker-" + count.incrementAndGet());
-            }
-        });
-        return workerGroup;
+    protected void initProducerManager() throws Exception {
+        producerManager = new ProducerManager(this);
+        producerManager.init();
     }
 
     public void init(final String threadPrefix) throws Exception {
-        initBossGroup(threadPrefix);
-        initIOGroup(threadPrefix, MAX_THREADS);
-        initWorkerGroup(threadPrefix, MAX_THREADS);
+        buildBossGroup(threadPrefix);
+        buildIOGroup(threadPrefix);
+        buildWorkerGroup(threadPrefix);
+    }
+
+    public void start() throws Exception {
+        producerManager.start();
     }
 
     public void shutdown() throws Exception {
         if (bossGroup != null) {
             bossGroup.shutdownGracefully();
-            if (LOGGER.isInfoEnabled()) {
-                LOGGER.info("shutdown bossGroup");
-            }
+            log.info("shutdown bossGroup");
+        }
+        if (producerManager != null) {
+            producerManager.shutdown();
         }
 
-        ThreadUtils.randomSleep(DEFAULT_SLEEP_SECONDS);
+        ThreadUtils.randomPause(TimeUnit.SECONDS.toMillis(DEFAULT_SLEEP_SECONDS));
 
         if (ioGroup != null) {
             ioGroup.shutdownGracefully();
-            if (LOGGER.isInfoEnabled()) {
-                LOGGER.info("shutdown ioGroup");
-            }
+            log.info("shutdown ioGroup");
         }
-
         if (workerGroup != null) {
             workerGroup.shutdownGracefully();
-            if (LOGGER.isInfoEnabled()) {
-                LOGGER.info("shutdown workerGroup");
-            }
+
+            log.info("shutdown workerGroup");
         }
     }
 
-    public abstract void start() throws Exception;
+    protected boolean useEpoll() {
+        return SystemUtils.isLinuxPlatform() && Epoll.isAvailable();
+    }
 }
