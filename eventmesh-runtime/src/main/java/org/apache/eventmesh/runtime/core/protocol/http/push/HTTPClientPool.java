@@ -18,7 +18,7 @@
 package org.apache.eventmesh.runtime.core.protocol.http.push;
 
 import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.lang3.RandomUtils;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.config.Registry;
 import org.apache.http.config.RegistryBuilder;
 import org.apache.http.conn.socket.ConnectionSocketFactory;
@@ -43,23 +43,25 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 import javax.net.ssl.SSLContext;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public class HTTPClientPool {
-
-    public static final Logger LOGGER = LoggerFactory.getLogger(HTTPClientPool.class);
 
     private final transient List<CloseableHttpClient> clients = Collections.synchronizedList(new ArrayList<>());
 
-    private int core;
+    private final int core;
 
     private static final int DEFAULT_MAX_TOTAL = 200;
     private static final int DEFAULT_IDLETIME_SECONDS = 30;
+
+    private static final int CONNECT_TIMEOUT = 5000;
+    private static final int SOCKET_TIMEOUT = 5000;
 
     private transient PoolingHttpClientConnectionManager connectionManager;
 
@@ -74,7 +76,7 @@ public class HTTPClientPool {
             return client;
         }
 
-        return clients.get(RandomUtils.nextInt(core, 2 * core) % core);
+        return clients.get(ThreadLocalRandom.current().nextInt(core, 2 * core) % core);
     }
 
     public void shutdown() throws IOException {
@@ -92,7 +94,7 @@ public class HTTPClientPool {
         }
     }
 
-    //@SuppressWarnings("deprecation")
+    // @SuppressWarnings("deprecation")
     public CloseableHttpClient getHttpClient(final int maxTotal, final int idleTimeInSeconds, final SSLContext sslContext) {
 
         SSLContext innerSSLContext = sslContext;
@@ -100,34 +102,38 @@ public class HTTPClientPool {
             innerSSLContext = innerSSLContext == null ? SSLContexts.custom().loadTrustMaterial(new TheTrustStrategy()).build() : innerSSLContext;
 
         } catch (KeyManagementException | NoSuchAlgorithmException | KeyStoreException e) {
-            LOGGER.error("Get sslContext error", e);
+            log.error("Get sslContext error", e);
             return HttpClients.createDefault();
         }
 
-
         if (connectionManager == null) {
             final SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(innerSSLContext, NoopHostnameVerifier.INSTANCE);
-            final Registry<ConnectionSocketFactory> socketFactoryRegistry
-                    = RegistryBuilder.<ConnectionSocketFactory>create()
-                    .register("http", PlainConnectionSocketFactory.getSocketFactory())
-                    .register("https", sslsf)
-                    .build();
+            final Registry<ConnectionSocketFactory> socketFactoryRegistry = RegistryBuilder.<ConnectionSocketFactory>create()
+                .register("http", PlainConnectionSocketFactory.getSocketFactory())
+                .register("https", sslsf)
+                .build();
             connectionManager = new PoolingHttpClientConnectionManager(socketFactoryRegistry);
             connectionManager.setDefaultMaxPerRoute(maxTotal);
             connectionManager.setMaxTotal(maxTotal);
         }
 
+        RequestConfig config = RequestConfig.custom()
+            .setConnectTimeout(CONNECT_TIMEOUT)
+            .setConnectionRequestTimeout(CONNECT_TIMEOUT)
+            .setSocketTimeout(SOCKET_TIMEOUT).build();
 
         return HttpClients.custom()
-                .setConnectionManager(connectionManager)
-                .setKeepAliveStrategy(new DefaultConnectionKeepAliveStrategy())
-                .evictIdleConnections(idleTimeInSeconds, TimeUnit.SECONDS)
-                .setConnectionReuseStrategy(new DefaultConnectionReuseStrategy())
-                .setRetryHandler(new DefaultHttpRequestRetryHandler())
-                .build();
+            .setDefaultRequestConfig(config)
+            .setConnectionManager(connectionManager)
+            .setKeepAliveStrategy(new DefaultConnectionKeepAliveStrategy())
+            .evictIdleConnections(idleTimeInSeconds, TimeUnit.SECONDS)
+            .setConnectionReuseStrategy(new DefaultConnectionReuseStrategy())
+            .setRetryHandler(new DefaultHttpRequestRetryHandler())
+            .build();
     }
 
     private static class TheTrustStrategy implements TrustStrategy {
+
         @Override
         public boolean isTrusted(final X509Certificate[] chain, final String authType) {
             return true;

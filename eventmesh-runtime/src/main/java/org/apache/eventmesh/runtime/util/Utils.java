@@ -20,6 +20,8 @@ package org.apache.eventmesh.runtime.util;
 import org.apache.eventmesh.common.protocol.tcp.EventMeshMessage;
 import org.apache.eventmesh.common.protocol.tcp.Package;
 import org.apache.eventmesh.common.protocol.tcp.UserAgent;
+import org.apache.eventmesh.common.utils.IPUtils;
+import org.apache.eventmesh.runtime.constants.EventMeshConstants;
 import org.apache.eventmesh.runtime.core.protocol.tcp.client.session.Session;
 import org.apache.eventmesh.runtime.core.protocol.tcp.client.session.SessionState;
 
@@ -38,9 +40,12 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpRequest;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 public class Utils {
-    private static final Logger LOGGER = LoggerFactory.getLogger(Utils.class);
-    private static final Logger MESSAGE_LOGGER = LoggerFactory.getLogger("message");
+
+    private static final Logger MESSAGE_LOGGER = LoggerFactory.getLogger(EventMeshConstants.MESSAGE);
 
     /**
      * used to send messages to the client
@@ -51,7 +56,7 @@ public class Utils {
      * @param session
      */
     public static void writeAndFlush(final Package pkg, long startTime, long taskExecuteTime, ChannelHandlerContext ctx,
-                                     Session session) {
+        Session session) {
         try {
             UserAgent user = session == null ? null : session.getClient();
             if (session != null && session.getSessionState() == SessionState.CLOSED) {
@@ -68,13 +73,12 @@ public class Utils {
 
                         if (session != null) {
                             Objects.requireNonNull(session.getClientGroupWrapper().get())
-                                .getEventMeshTcpMonitor().getTcpSummaryMetrics().getEventMesh2clientMsgNum().incrementAndGet();
+                                .getEventMeshTcpMetricsManager().eventMesh2clientMsgNumIncrement(IPUtils.parseChannelRemoteAddr(ctx.channel()));
                         }
                     }
-                }
-            );
+                });
         } catch (Exception e) {
-            LOGGER.error("exception while sending message to client", e);
+            log.error("exception while sending message to client", e);
         }
     }
 
@@ -87,21 +91,21 @@ public class Utils {
      * @param startTime
      */
     public static void logFailedMessageFlow(ChannelFuture future, Package pkg, UserAgent user, long startTime,
-                                            long taskExecuteTime) {
+        long taskExecuteTime) {
         logFailedMessageFlow(pkg, user, startTime, taskExecuteTime, future.cause());
     }
 
     private static void logFailedMessageFlow(Package pkg, UserAgent user, long startTime, long taskExecuteTime,
-                                             Throwable e) {
+        Throwable e) {
         if (pkg.getBody() instanceof EventMeshMessage) {
+            final String mqMessage = EventMeshUtil.printMqMessage((EventMeshMessage) pkg.getBody());
             MESSAGE_LOGGER.error("pkg|eventMesh2c|failed|cmd={}|mqMsg={}|user={}|wait={}ms|cost={}ms|errMsg={}",
-                    pkg.getHeader().getCmd(),
-                    EventMeshUtil.printMqMessage((EventMeshMessage) pkg.getBody()), user, taskExecuteTime - startTime,
-                    System.currentTimeMillis() - startTime, e);
+                pkg.getHeader().getCmd(), mqMessage, user, taskExecuteTime - startTime,
+                System.currentTimeMillis() - startTime, e);
         } else {
             MESSAGE_LOGGER.error("pkg|eventMesh2c|failed|cmd={}|pkg={}|user={}|wait={}ms|cost={}ms|errMsg={}",
-                    pkg.getHeader().getCmd(),
-                    pkg, user, taskExecuteTime - startTime, System.currentTimeMillis() - startTime, e);
+                pkg.getHeader().getCmd(),
+                pkg, user, taskExecuteTime - startTime, System.currentTimeMillis() - startTime, e);
         }
     }
 
@@ -114,13 +118,14 @@ public class Utils {
      */
     public static void logSucceedMessageFlow(Package pkg, UserAgent user, long startTime, long taskExecuteTime) {
         if (pkg.getBody() instanceof EventMeshMessage) {
+            final String mqMessage = EventMeshUtil.printMqMessage((EventMeshMessage) pkg.getBody());
             MESSAGE_LOGGER.info("pkg|eventMesh2c|cmd={}|mqMsg={}|user={}|wait={}ms|cost={}ms", pkg.getHeader().getCmd(),
-                    EventMeshUtil.printMqMessage((EventMeshMessage) pkg.getBody()), user, taskExecuteTime - startTime,
-                    System.currentTimeMillis() - startTime);
+                mqMessage, user, taskExecuteTime - startTime,
+                System.currentTimeMillis() - startTime);
         } else {
             MESSAGE_LOGGER
-                    .info("pkg|eventMesh2c|cmd={}|pkg={}|user={}|wait={}ms|cost={}ms", pkg.getHeader().getCmd(), pkg,
-                            user, taskExecuteTime - startTime, System.currentTimeMillis() - startTime);
+                .info("pkg|eventMesh2c|cmd={}|pkg={}|user={}|wait={}ms|cost={}ms", pkg.getHeader().getCmd(), pkg,
+                    user, taskExecuteTime - startTime, System.currentTimeMillis() - startTime);
 
         }
     }
@@ -146,9 +151,9 @@ public class Utils {
     public static Map<String, Object> parseHttpHeader(HttpRequest fullReq) {
         Map<String, Object> headerParam = new HashMap<>();
         for (String key : fullReq.headers().names()) {
-            if (StringUtils.equalsIgnoreCase(HttpHeaderNames.CONTENT_TYPE.toString(), key)
-                || StringUtils.equalsIgnoreCase(HttpHeaderNames.ACCEPT_ENCODING.toString(), key)
-                || StringUtils.equalsIgnoreCase(HttpHeaderNames.CONTENT_LENGTH.toString(), key)) {
+            if (StringUtils.equalsAnyIgnoreCase(key, HttpHeaderNames.CONTENT_TYPE.toString(),
+                HttpHeaderNames.ACCEPT_ENCODING.toString(),
+                HttpHeaderNames.CONTENT_LENGTH.toString())) {
                 continue;
             }
             headerParam.put(key, fullReq.headers().get(key));

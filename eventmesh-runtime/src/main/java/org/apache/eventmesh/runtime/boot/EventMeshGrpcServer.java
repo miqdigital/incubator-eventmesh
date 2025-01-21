@@ -17,31 +17,33 @@
 
 package org.apache.eventmesh.runtime.boot;
 
-import org.apache.eventmesh.api.registry.dto.EventMeshRegisterInfo;
-import org.apache.eventmesh.api.registry.dto.EventMeshUnRegisterInfo;
+import static org.apache.eventmesh.common.Constants.GRPC;
+
+import org.apache.eventmesh.api.meta.dto.EventMeshRegisterInfo;
+import org.apache.eventmesh.api.meta.dto.EventMeshUnRegisterInfo;
 import org.apache.eventmesh.common.ThreadPoolFactory;
+import org.apache.eventmesh.common.config.CommonConfiguration;
 import org.apache.eventmesh.common.exception.EventMeshException;
-import org.apache.eventmesh.common.utils.ConfigurationContextUtil;
 import org.apache.eventmesh.common.utils.IPUtils;
 import org.apache.eventmesh.metrics.api.MetricsPluginFactory;
 import org.apache.eventmesh.metrics.api.MetricsRegistry;
+import org.apache.eventmesh.runtime.acl.Acl;
 import org.apache.eventmesh.runtime.configuration.EventMeshGrpcConfiguration;
 import org.apache.eventmesh.runtime.constants.EventMeshConstants;
 import org.apache.eventmesh.runtime.core.protocol.grpc.consumer.ConsumerManager;
-import org.apache.eventmesh.runtime.core.protocol.grpc.producer.ProducerManager;
 import org.apache.eventmesh.runtime.core.protocol.grpc.retry.GrpcRetryer;
 import org.apache.eventmesh.runtime.core.protocol.grpc.service.ConsumerService;
 import org.apache.eventmesh.runtime.core.protocol.grpc.service.HeartbeatService;
-import org.apache.eventmesh.runtime.core.protocol.grpc.service.ProducerService;
-import org.apache.eventmesh.runtime.metrics.grpc.EventMeshGrpcMonitor;
-import org.apache.eventmesh.runtime.registry.Registry;
+import org.apache.eventmesh.runtime.core.protocol.grpc.service.PublisherService;
+import org.apache.eventmesh.runtime.meta.MetaStorage;
+import org.apache.eventmesh.runtime.metrics.grpc.EventMeshGrpcMetricsManager;
 
 import org.apache.commons.lang3.RandomUtils;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 
+import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
@@ -49,17 +51,16 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 
 import org.assertj.core.util.Lists;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 
 import com.google.common.util.concurrent.RateLimiter;
 
-public class EventMeshGrpcServer {
+import lombok.extern.slf4j.Slf4j;
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+@Slf4j
+public class EventMeshGrpcServer extends AbstractRemotingServer {
 
     private final EventMeshGrpcConfiguration eventMeshGrpcConfiguration;
 
@@ -68,8 +69,6 @@ public class EventMeshGrpcServer {
     private static final int MAX_LIMIT = 10;
 
     private Server server;
-
-    private ProducerManager producerManager;
 
     private ConsumerManager consumerManager;
 
@@ -87,65 +86,73 @@ public class EventMeshGrpcServer {
 
     private RateLimiter msgRateLimiter;
 
-    private Registry registry;
+    private final MetaStorage metaStorage;
 
-    private EventMeshGrpcMonitor eventMeshGrpcMonitor;
+    private final Acl acl;
 
-    public EventMeshGrpcServer(EventMeshGrpcConfiguration eventMeshGrpcConfiguration, Registry registry) {
+    private final EventMeshServer eventMeshServer;
+
+    private EventMeshGrpcMetricsManager eventMeshGrpcMetricsManager;
+
+    public EventMeshGrpcServer(final EventMeshServer eventMeshServer, final EventMeshGrpcConfiguration eventMeshGrpcConfiguration) {
+        this.eventMeshServer = eventMeshServer;
         this.eventMeshGrpcConfiguration = eventMeshGrpcConfiguration;
-        this.registry = registry;
+        this.metaStorage = eventMeshServer.getMetaStorage();
+        this.acl = eventMeshServer.getAcl();
     }
 
     public void init() throws Exception {
-        logger.info("==================EventMeshGRPCServer Initializing==================");
+        log.info("==================EventMeshGRPCServer Initializing==================");
 
         initThreadPool();
 
         initHttpClientPool();
 
-        msgRateLimiter = RateLimiter.create(eventMeshGrpcConfiguration.eventMeshMsgReqNumPerSecond);
+        msgRateLimiter = RateLimiter.create(eventMeshGrpcConfiguration.getEventMeshMsgReqNumPerSecond());
 
-        producerManager = new ProducerManager(this);
-        producerManager.init();
-
+        initProducerManager();
         consumerManager = new ConsumerManager(this);
         consumerManager.init();
 
         grpcRetryer = new GrpcRetryer(this);
-        grpcRetryer.init();
 
-        int serverPort = eventMeshGrpcConfiguration.grpcServerPort;
+        int serverPort = eventMeshGrpcConfiguration.getGrpcServerPort();
 
         server = ServerBuilder.forPort(serverPort)
-            .addService(new ProducerService(this, sendMsgExecutor))
-            .addService(new ConsumerService(this, clientMgmtExecutor, replyMsgExecutor))
-            .addService(new HeartbeatService(this, clientMgmtExecutor))
+            .addService(new ConsumerService(this, sendMsgExecutor, replyMsgExecutor))
+            .addService(new HeartbeatService(this, sendMsgExecutor))
+            .addService(new PublisherService(this, sendMsgExecutor))
             .build();
 
         initMetricsMonitor();
 
-        logger.info("GRPCServer[port={}] started", serverPort);
-        logger.info("-----------------EventMeshGRPCServer initialized");
+        log.info("GRPCServer[port={}] started", serverPort);
+        log.info("-----------------EventMeshGRPCServer initialized");
+    }
+
+    @Override
+    public CommonConfiguration getConfiguration() {
+        return eventMeshGrpcConfiguration;
     }
 
     public void start() throws Exception {
-        logger.info("---------------EventMeshGRPCServer starting-------------------");
+        log.info("---------------EventMeshGRPCServer starting-------------------");
 
         producerManager.start();
         consumerManager.start();
         grpcRetryer.start();
         server.start();
 
-        if (eventMeshGrpcConfiguration.isEventMeshServerRegistryEnable()) {
+        if (eventMeshGrpcConfiguration.isEventMeshServerMetaStorageEnable()) {
             this.register();
         }
 
-        eventMeshGrpcMonitor.start();
-        logger.info("---------------EventMeshGRPCServer running-------------------");
+        eventMeshGrpcMetricsManager.start();
+        log.info("---------------EventMeshGRPCServer running-------------------");
     }
 
     public void shutdown() throws Exception {
-        logger.info("---------------EventMeshGRPCServer stopping-------------------");
+        log.info("---------------EventMeshGRPCServer stopping-------------------");
 
         producerManager.shutdown();
         consumerManager.shutdown();
@@ -156,28 +163,28 @@ public class EventMeshGrpcServer {
 
         server.shutdown();
 
-        if (eventMeshGrpcConfiguration.isEventMeshServerRegistryEnable()) {
+        if (eventMeshGrpcConfiguration.isEventMeshServerMetaStorageEnable()) {
             this.unRegister();
         }
 
-        eventMeshGrpcMonitor.shutdown();
-        logger.info("---------------EventMeshGRPCServer stopped-------------------");
+        eventMeshGrpcMetricsManager.shutdown();
+        log.info("---------------EventMeshGRPCServer stopped-------------------");
     }
 
     public boolean register() {
         boolean registerResult = false;
         try {
             String endPoints = IPUtils.getLocalAddress()
-                + EventMeshConstants.IP_PORT_SEPARATOR + eventMeshGrpcConfiguration.grpcServerPort;
+                + EventMeshConstants.IP_PORT_SEPARATOR + eventMeshGrpcConfiguration.getGrpcServerPort();
             EventMeshRegisterInfo eventMeshRegisterInfo = new EventMeshRegisterInfo();
             eventMeshRegisterInfo.setEventMeshClusterName(eventMeshGrpcConfiguration.getEventMeshCluster());
             eventMeshRegisterInfo.setEventMeshName(eventMeshGrpcConfiguration.getEventMeshName() + "-"
-                    + ConfigurationContextUtil.GRPC);
+                + GRPC);
             eventMeshRegisterInfo.setEndPoint(endPoints);
-            eventMeshRegisterInfo.setProtocolType(ConfigurationContextUtil.GRPC);
-            registerResult = registry.register(eventMeshRegisterInfo);
+            eventMeshRegisterInfo.setProtocolType(GRPC);
+            registerResult = metaStorage.register(eventMeshRegisterInfo);
         } catch (Exception e) {
-            logger.warn("eventMesh register to registry failed", e);
+            log.warn("eventMesh register to registry failed", e);
         }
 
         return registerResult;
@@ -185,13 +192,13 @@ public class EventMeshGrpcServer {
 
     private void unRegister() throws Exception {
         String endPoints = IPUtils.getLocalAddress()
-            + EventMeshConstants.IP_PORT_SEPARATOR + eventMeshGrpcConfiguration.grpcServerPort;
+            + EventMeshConstants.IP_PORT_SEPARATOR + eventMeshGrpcConfiguration.getGrpcServerPort();
         EventMeshUnRegisterInfo eventMeshUnRegisterInfo = new EventMeshUnRegisterInfo();
         eventMeshUnRegisterInfo.setEventMeshClusterName(eventMeshGrpcConfiguration.getEventMeshCluster());
         eventMeshUnRegisterInfo.setEventMeshName(eventMeshGrpcConfiguration.getEventMeshName());
         eventMeshUnRegisterInfo.setEndPoint(endPoints);
-        eventMeshUnRegisterInfo.setProtocolType(ConfigurationContextUtil.GRPC);
-        boolean registerResult = registry.unRegister(eventMeshUnRegisterInfo);
+        eventMeshUnRegisterInfo.setProtocolType(GRPC);
+        boolean registerResult = metaStorage.unRegister(eventMeshUnRegisterInfo);
         if (!registerResult) {
             throw new EventMeshException("eventMesh fail to unRegister");
         }
@@ -199,10 +206,6 @@ public class EventMeshGrpcServer {
 
     public EventMeshGrpcConfiguration getEventMeshGrpcConfiguration() {
         return this.eventMeshGrpcConfiguration;
-    }
-
-    public ProducerManager getProducerManager() {
-        return producerManager;
     }
 
     public ConsumerManager getConsumerManager() {
@@ -234,39 +237,43 @@ public class EventMeshGrpcServer {
         return httpClientPool.get(RandomUtils.nextInt(size, 2 * size) % size);
     }
 
-    public EventMeshGrpcMonitor getMetricsMonitor() {
-        return eventMeshGrpcMonitor;
+    public EventMeshGrpcMetricsManager getEventMeshGrpcMetricsManager() {
+        return eventMeshGrpcMetricsManager;
     }
 
     private void initThreadPool() {
         BlockingQueue<Runnable> sendMsgThreadPoolQueue =
-            new LinkedBlockingQueue<Runnable>(eventMeshGrpcConfiguration.eventMeshServerSendMsgBlockQueueSize);
+            new LinkedBlockingQueue<Runnable>(eventMeshGrpcConfiguration.getEventMeshServerSendMsgBlockQueueSize());
 
-        sendMsgExecutor = ThreadPoolFactory.createThreadPoolExecutor(eventMeshGrpcConfiguration.eventMeshServerSendMsgThreadNum,
-            eventMeshGrpcConfiguration.eventMeshServerSendMsgThreadNum, sendMsgThreadPoolQueue,
-            "eventMesh-grpc-sendMsg-%d", true);
+        sendMsgExecutor = ThreadPoolFactory.createThreadPoolExecutor(
+            eventMeshGrpcConfiguration.getEventMeshServerSendMsgThreadNum(),
+            eventMeshGrpcConfiguration.getEventMeshServerSendMsgThreadNum(), sendMsgThreadPoolQueue,
+            "eventMesh-grpc-sendMsg", true);
 
         BlockingQueue<Runnable> subscribeMsgThreadPoolQueue =
-            new LinkedBlockingQueue<Runnable>(eventMeshGrpcConfiguration.eventMeshServerSubscribeMsgBlockQueueSize);
+            new LinkedBlockingQueue<Runnable>(eventMeshGrpcConfiguration.getEventMeshServerSubscribeMsgBlockQueueSize());
 
-        clientMgmtExecutor = ThreadPoolFactory.createThreadPoolExecutor(eventMeshGrpcConfiguration.eventMeshServerSubscribeMsgThreadNum,
-            eventMeshGrpcConfiguration.eventMeshServerSubscribeMsgThreadNum, subscribeMsgThreadPoolQueue,
-            "eventMesh-grpc-clientMgmt-%d", true);
+        clientMgmtExecutor = ThreadPoolFactory.createThreadPoolExecutor(
+            eventMeshGrpcConfiguration.getEventMeshServerSubscribeMsgThreadNum(),
+            eventMeshGrpcConfiguration.getEventMeshServerSubscribeMsgThreadNum(), subscribeMsgThreadPoolQueue,
+            "eventMesh-grpc-clientMgmt", true);
 
         BlockingQueue<Runnable> pushMsgThreadPoolQueue =
-            new LinkedBlockingQueue<Runnable>(eventMeshGrpcConfiguration.eventMeshServerPushMsgBlockQueueSize);
+            new LinkedBlockingQueue<Runnable>(eventMeshGrpcConfiguration.getEventMeshServerPushMsgBlockQueueSize());
 
-        pushMsgExecutor = ThreadPoolFactory.createThreadPoolExecutor(eventMeshGrpcConfiguration.eventMeshServerPushMsgThreadNum,
-            eventMeshGrpcConfiguration.eventMeshServerPushMsgThreadNum, pushMsgThreadPoolQueue,
-            "eventMesh-grpc-pushMsg-%d", true);
+        pushMsgExecutor = ThreadPoolFactory.createThreadPoolExecutor(
+            eventMeshGrpcConfiguration.getEventMeshServerPushMsgThreadNum(),
+            eventMeshGrpcConfiguration.getEventMeshServerPushMsgThreadNum(), pushMsgThreadPoolQueue,
+            "eventMesh-grpc-pushMsg", true);
 
-        replyMsgExecutor = ThreadPoolFactory.createThreadPoolExecutor(eventMeshGrpcConfiguration.eventMeshServerReplyMsgThreadNum,
-            eventMeshGrpcConfiguration.eventMeshServerReplyMsgThreadNum, sendMsgThreadPoolQueue,
-            "eventMesh-grpc-replyMsg-%d", true);
+        replyMsgExecutor = ThreadPoolFactory.createThreadPoolExecutor(
+            eventMeshGrpcConfiguration.getEventMeshServerReplyMsgThreadNum(),
+            eventMeshGrpcConfiguration.getEventMeshServerReplyMsgThreadNum(), sendMsgThreadPoolQueue,
+            "eventMesh-grpc-replyMsg", true);
     }
 
     private void initHttpClientPool() {
-        httpClientPool = new LinkedList<>();
+        httpClientPool = new ArrayList<>();
         int clientPool = RandomUtils.nextInt(MIN_LIMIT, MAX_LIMIT);
         for (int i = 0; i < clientPool; i++) {
             CloseableHttpClient client = HttpClients.createDefault();
@@ -274,14 +281,13 @@ public class EventMeshGrpcServer {
         }
     }
 
+
+
     private void initMetricsMonitor() throws Exception {
         final List<MetricsRegistry> metricsRegistries = Lists.newArrayList();
-        Optional.ofNullable(eventMeshGrpcConfiguration.getEventMeshMetricsPluginType())
-            .ifPresent(
-                metricsPlugins -> metricsPlugins.forEach(
-                    pluginType -> metricsRegistries.add(MetricsPluginFactory.getMetricsRegistry(pluginType))));
-        eventMeshGrpcMonitor = new EventMeshGrpcMonitor(this, metricsRegistries);
-        eventMeshGrpcMonitor.init();
+        Optional.ofNullable(eventMeshGrpcConfiguration.getEventMeshMetricsPluginType()).ifPresent(
+            metricsPlugins -> metricsPlugins.forEach(pluginType -> metricsRegistries.add(MetricsPluginFactory.getMetricsRegistry(pluginType))));
+        eventMeshGrpcMetricsManager = new EventMeshGrpcMetricsManager(this, metricsRegistries);
     }
 
     private void shutdownThreadPools() {
@@ -302,5 +308,13 @@ public class EventMeshGrpcServer {
             }
             itr.remove();
         }
+    }
+
+    public MetaStorage getMetaStorage() {
+        return metaStorage;
+    }
+
+    public Acl getAcl() {
+        return acl;
     }
 }

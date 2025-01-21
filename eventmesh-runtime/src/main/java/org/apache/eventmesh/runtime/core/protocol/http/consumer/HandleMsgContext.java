@@ -24,6 +24,7 @@ import org.apache.eventmesh.runtime.boot.EventMeshHTTPServer;
 import org.apache.eventmesh.runtime.constants.EventMeshConstants;
 import org.apache.eventmesh.runtime.core.consumergroup.ConsumerGroupConf;
 import org.apache.eventmesh.runtime.core.consumergroup.ConsumerGroupTopicConf;
+import org.apache.eventmesh.runtime.core.protocol.consumer.HandleMessageContext;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.DateFormatUtils;
@@ -38,9 +39,12 @@ import org.slf4j.LoggerFactory;
 
 import io.cloudevents.CloudEvent;
 
-public class HandleMsgContext {
+import lombok.extern.slf4j.Slf4j;
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(HandleMsgContext.class);
+@Slf4j
+public class HandleMsgContext implements HandleMessageContext {
+
+    public static final Logger MESSAGE_LOGGER = LoggerFactory.getLogger(EventMeshConstants.MESSAGE);
 
     private String msgRandomNo;
 
@@ -73,17 +77,17 @@ public class HandleMsgContext {
     private Map<String, String> props;
 
     public HandleMsgContext(final String msgRandomNo,
-                            final String consumerGroup,
-                            final EventMeshConsumer eventMeshConsumer,
-                            final String topic,
-                            final CloudEvent event,
-                            final SubscriptionItem subscriptionItem,
-                            final AbstractContext context,
-                            final ConsumerGroupConf consumerGroupConfig,
-                            final EventMeshHTTPServer eventMeshHTTPServer,
-                            final String bizSeqNo,
-                            final String uniqueId,
-                            final ConsumerGroupTopicConf consumeTopicConfig) {
+        final String consumerGroup,
+        final EventMeshConsumer eventMeshConsumer,
+        final String topic,
+        final CloudEvent event,
+        final SubscriptionItem subscriptionItem,
+        final AbstractContext context,
+        final ConsumerGroupConf consumerGroupConfig,
+        final EventMeshHTTPServer eventMeshHTTPServer,
+        final String bizSeqNo,
+        final String uniqueId,
+        final ConsumerGroupTopicConf consumeTopicConfig) {
         this.msgRandomNo = msgRandomNo;
         this.consumerGroup = consumerGroup;
         this.eventMeshConsumer = eventMeshConsumer;
@@ -206,9 +210,9 @@ public class HandleMsgContext {
 
     public void finish() {
         if (Objects.nonNull(eventMeshConsumer) && Objects.nonNull(context) && Objects.nonNull(event)) {
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug("messageAcked|topic={}|event={}", topic, event);
-            }
+            MESSAGE_LOGGER.info("messageAcked|group={}|topic={}|bizSeq={}|uniqId={}|msgRandomNo={}|queueId={}|queueOffset={}",
+                consumerGroup, topic, bizSeqNo, uniqueId, msgRandomNo, event.getExtension(Constants.PROPERTY_MESSAGE_QUEUE_ID),
+                event.getExtension(Constants.PROPERTY_MESSAGE_QUEUE_OFFSET));
             eventMeshConsumer.updateOffset(topic, subscriptionItem.getMode(), Collections.singletonList(event), context);
         }
     }
@@ -232,25 +236,25 @@ public class HandleMsgContext {
     @Override
     public String toString() {
         return new StringBuilder()
-                .append("handleMsgContext={")
-                .append("consumerGroup=")
-                .append(consumerGroup)
-                .append(",topic=")
-                .append(topic)
-                .append(",subscriptionItem=")
-                .append(subscriptionItem)
-                .append(",consumeTopicConfig=")
-                .append(consumeTopicConfig)
-                .append(",bizSeqNo=")
-                .append(bizSeqNo)
-                .append(",uniqueId=")
-                .append(uniqueId)
-                .append(",ttl=")
-                .append(ttl)
-                .append(",createTime=")
-                .append(DateFormatUtils.format(createTime, Constants.DATE_FORMAT))
-                .append('}')
-                .toString();
+            .append("handleMsgContext={")
+            .append("consumerGroup=")
+            .append(consumerGroup)
+            .append(",topic=")
+            .append(topic)
+            .append(",subscriptionItem=")
+            .append(subscriptionItem)
+            .append(",consumeTopicConfig=")
+            .append(consumeTopicConfig)
+            .append(",bizSeqNo=")
+            .append(bizSeqNo)
+            .append(",uniqueId=")
+            .append(uniqueId)
+            .append(",ttl=")
+            .append(ttl)
+            .append(",createTime=")
+            .append(DateFormatUtils.format(createTime, Constants.DATE_FORMAT_INCLUDE_MILLISECONDS))
+            .append('}')
+            .toString();
     }
 
 }

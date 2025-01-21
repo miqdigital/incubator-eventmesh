@@ -23,7 +23,6 @@ package org.apache.eventmesh.common.protocol.catalog.protos;
 import java.util.Objects;
 
 import com.google.protobuf.ByteString;
-import com.google.protobuf.Internal;
 
 /**
  * Protobuf type {@code eventmesh.catalog.api.protocol.Operation}
@@ -87,9 +86,6 @@ public final class Operation extends
         Objects.requireNonNull(input, "CodedInputStream can not be null");
         Objects.requireNonNull(extensionRegistry, "ExtensionRegistryLite can not be null");
 
-        if (extensionRegistry == null) {
-            throw new NullPointerException();
-        }
         com.google.protobuf.UnknownFieldSet.Builder unknownFields =
                 com.google.protobuf.UnknownFieldSet.newBuilder();
         try {
@@ -411,7 +407,7 @@ public final class Operation extends
 
     @Override
     public Builder toBuilder() {
-        return this == DEFAULT_INSTANCE
+        return this.equals(DEFAULT_INSTANCE)
                 ? new Builder() : new Builder().mergeFrom(this);
     }
 
@@ -549,7 +545,7 @@ public final class Operation extends
         }
 
         public Builder mergeFrom(Operation other) {
-            if (other == Operation.getDefaultInstance()) {
+            if (other.equals(Operation.getDefaultInstance())) {
                 return this;
             }
             if (!other.getChannelName().isEmpty()) {

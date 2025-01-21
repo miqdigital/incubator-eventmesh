@@ -17,37 +17,37 @@
 
 package org.apache.eventmesh.runtime.boot;
 
-import org.apache.eventmesh.common.config.ConfigurationWrapper;
+import static org.apache.eventmesh.common.Constants.TCP;
+
+import org.apache.eventmesh.common.config.ConfigService;
 import org.apache.eventmesh.common.utils.ConfigurationContextUtil;
 import org.apache.eventmesh.runtime.configuration.EventMeshTCPConfiguration;
-import org.apache.eventmesh.runtime.registry.Registry;
+
+import lombok.Getter;
 
 public class EventMeshTcpBootstrap implements EventMeshBootstrap {
 
+    @Getter
     private EventMeshTCPServer eventMeshTcpServer;
 
     private final EventMeshTCPConfiguration eventMeshTcpConfiguration;
 
     private final EventMeshServer eventMeshServer;
 
-    private final Registry registry;
-
-    public EventMeshTcpBootstrap(EventMeshServer eventMeshServer,
-                                 ConfigurationWrapper configurationWrapper,
-                                 Registry registry) {
+    public EventMeshTcpBootstrap(EventMeshServer eventMeshServer) {
         this.eventMeshServer = eventMeshServer;
-        this.registry = registry;
-        this.eventMeshTcpConfiguration = new EventMeshTCPConfiguration(configurationWrapper);
-        eventMeshTcpConfiguration.init();
-        ConfigurationContextUtil.putIfAbsent(ConfigurationContextUtil.TCP, eventMeshTcpConfiguration);
 
+        ConfigService configService = ConfigService.getInstance();
+        this.eventMeshTcpConfiguration = configService.buildConfigInstance(EventMeshTCPConfiguration.class);
+
+        ConfigurationContextUtil.putIfAbsent(TCP, eventMeshTcpConfiguration);
     }
 
     @Override
     public void init() throws Exception {
         // server init
         if (eventMeshTcpConfiguration != null) {
-            eventMeshTcpServer = new EventMeshTCPServer(eventMeshServer, eventMeshTcpConfiguration, registry);
+            eventMeshTcpServer = new EventMeshTCPServer(eventMeshServer, eventMeshTcpConfiguration);
             eventMeshTcpServer.init();
         }
     }

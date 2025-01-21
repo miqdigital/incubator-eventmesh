@@ -24,9 +24,15 @@ public class Constants {
 
     public static final Charset DEFAULT_CHARSET = StandardCharsets.UTF_8;
 
-    public static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss.SSS";
+    public static final String DATE_FORMAT_INCLUDE_MILLISECONDS = "yyyy-MM-dd HH:mm:ss.SSS";
+
+    public static final String DATE_FORMAT_DEFAULT = "yyyy-MM-dd HH:mm:ss";
+
+    public static final String DATA_CONTENT_TYPE = "datacontenttype";
 
     public static final String LANGUAGE_JAVA = "JAVA";
+
+    public static final String CONNECT_SERVER_CONFIG_FILE_NAME = "server-config.yml";
 
     public static final String HTTP_PROTOCOL_PREFIX = "http://";
 
@@ -102,9 +108,15 @@ public class Constants {
 
     public static final String PRODUCER_GROUP = "producerGroup";
 
+    public static final String PRODUCER_TOKEN = "producerToken";
+
+    public static final String CONSUMER_TOKEN = "consumerToken";
+
     public static final String INSTANCE_NAME = "instanceName";
 
     public static final String ACCESS_POINTS = "ACCESS_POINTS";
+
+    public static final String CLIENT_ADDRESS = "clientAddress";
 
     public static final String REGION = "REGION";
 
@@ -116,11 +128,11 @@ public class Constants {
 
     public static final String OPERATION_TIMEOUT = "OPERATION_TIMEOUT";
 
-    public static String CLOUD_EVENTS_PROTOCOL_NAME = "cloudevents";
+    public static final String CLOUD_EVENTS_PROTOCOL_NAME = "cloudevents";
 
-    public static String EM_MESSAGE_PROTOCOL_NAME = "eventmeshmessage";
+    public static final String EM_MESSAGE_PROTOCOL_NAME = "eventmeshmessage";
 
-    public static String OPEN_MESSAGE_PROTOCOL_NAME = "openmessage";
+    public static final String OPEN_MESSAGE_PROTOCOL_NAME = "openmessage";
 
     // delimiter define
     public static final String COMMA = ",";
@@ -138,6 +150,8 @@ public class Constants {
     public static final String ASTERISK = "*";
 
     public static final String UNDER_LINE = "_";
+
+    public static final String UNKNOWN = "unknown";
 
     public static final String LEFT_PARENTHESIS = "(";
 
@@ -159,6 +173,17 @@ public class Constants {
 
     public static final int SUCCESS_CODE = 200;
 
+    public static final String SINK = "Sink";
+
+    public static final String SOURCE = "Source";
+
+    // protocol desc
+    public static final String PROTOCOL_DESC_GRPC_CLOUD_EVENT = "grpc-cloud-event";
+
+    public static final String PROTOCOL_DESC_HTTP = "http";
+
+    public static final String PROTOCOL_DESC_TCP = "tcp";
+
     /**
      * GRPC PROTOCOL
      */
@@ -168,4 +193,20 @@ public class Constants {
      * application/cloudevents+json Content-type
      */
     public static final String CONTENT_TYPE_CLOUDEVENTS_JSON = "application/cloudevents+json";
+
+    public static final String HTTP = "HTTP";
+
+    public static final String TCP = "TCP";
+
+    public static final String GRPC = "GRPC";
+
+    public static final String ADMIN = "ADMIN";
+
+    public static final String OS_NAME_KEY = "os.name";
+
+    public static final String OS_WIN_PREFIX = "win";
+
+    public static final String DEFAULT = "default";
+
+    public static final String ADMIN_SERVER_REGISTRY_NAME = "DEFAULT_GROUP@@em_adm_server";
 }

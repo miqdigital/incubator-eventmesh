@@ -17,17 +17,26 @@
 
 package org.apache.eventmesh.auth.http.basic.config;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.apache.eventmesh.api.auth.AuthService;
+import org.apache.eventmesh.auth.http.basic.impl.AuthHttpBasicService;
+import org.apache.eventmesh.spi.EventMeshExtensionFactory;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class AuthConfigsTest {
 
     @Test
-    public void testGetConfigs() {
-        AuthConfigs configs = AuthConfigs.getConfigs();
-        String password = configs.getPassword();
-        String username = configs.getUsername();
-        Assert.assertEquals(password, "password");
-        Assert.assertEquals(username, "usera");
+    public void getConfigWhenAuthHttpBasicServiceInit() {
+        AuthHttpBasicService authService = (AuthHttpBasicService) EventMeshExtensionFactory.getExtension(
+            AuthService.class, "auth-http-basic");
+
+        AuthConfigs config = authService.getClientConfiguration();
+        assertConfig(config);
+    }
+
+    private void assertConfig(AuthConfigs config) {
+        Assertions.assertEquals(config.getUsername(), "username-success!!!");
+        Assertions.assertEquals(config.getPassword(), "password-success!!!");
     }
 }

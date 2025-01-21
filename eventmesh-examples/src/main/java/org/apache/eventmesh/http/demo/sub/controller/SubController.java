@@ -17,7 +17,8 @@
 
 package org.apache.eventmesh.http.demo.sub.controller;
 
-import org.apache.eventmesh.client.tcp.common.EventMeshCommon;
+import static org.apache.eventmesh.common.Constants.CLOUD_EVENTS_PROTOCOL_NAME;
+
 import org.apache.eventmesh.common.protocol.http.common.ProtocolKey;
 import org.apache.eventmesh.common.utils.JsonUtils;
 import org.apache.eventmesh.http.demo.sub.service.SubService;
@@ -52,18 +53,18 @@ public class SubController {
     private transient SubService subService;
 
     @RequestMapping(value = "/test", method = RequestMethod.POST)
-    public String subTest(HttpServletRequest request) {
-        String content = request.getParameter("content");
+    public String subTest(final HttpServletRequest request) {
+        final String content = request.getParameter("content");
         log.info("receive message: {}", content);
         @SuppressWarnings("unchecked")
-        Map<String, String> contentMap = JsonUtils.deserialize(content, HashMap.class);
-        if (StringUtils.equals(EventMeshCommon.CLOUD_EVENTS_PROTOCOL_NAME, contentMap.get(ProtocolKey.PROTOCOL_TYPE))) {
-            EventFormat eventFormat = EventFormatProvider.getInstance().resolveFormat(JsonFormat.CONTENT_TYPE);
+        final Map<String, String> contentMap = JsonUtils.parseObject(content, HashMap.class);
+        if (StringUtils.equals(CLOUD_EVENTS_PROTOCOL_NAME, contentMap.get(ProtocolKey.PROTOCOL_TYPE))) {
+            final EventFormat eventFormat = EventFormatProvider.getInstance().resolveFormat(JsonFormat.CONTENT_TYPE);
             if (eventFormat != null) {
-                CloudEvent event = eventFormat.deserialize(content.getBytes(StandardCharsets.UTF_8));
-                CloudEventData eventData = event.getData();
+                final CloudEvent event = eventFormat.deserialize(content.getBytes(StandardCharsets.UTF_8));
+                final CloudEventData eventData = event.getData();
                 if (eventData != null) {
-                    String data = new String(eventData.toBytes(), StandardCharsets.UTF_8);
+                    final String data = new String(eventData.toBytes(), StandardCharsets.UTF_8);
                     log.info("receive data: {}", data);
                 }
             }
@@ -71,9 +72,9 @@ public class SubController {
 
         subService.consumeMessage(content);
 
-        Map<String, Object> map = new HashMap<>();
+        final Map<String, Object> map = new HashMap<>();
         map.put("retCode", 1);
-        return JsonUtils.serialize(map);
+        return JsonUtils.toJSONString(map);
     }
 
 }

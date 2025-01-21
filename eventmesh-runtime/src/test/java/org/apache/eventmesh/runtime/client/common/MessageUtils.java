@@ -32,11 +32,12 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class MessageUtils {
+
     public static final int seqLength = 10;
 
     public static Package hello(UserAgent user) {
         Package msg = new Package();
-        msg.setHeader(new Header(Command.HELLO_REQUEST, 0, "sucess", generateRandomString(seqLength)));
+        msg.setHeader(new Header(Command.HELLO_REQUEST, 0, "success", generateRandomString(seqLength)));
         msg.setBody(user);
         return msg;
     }
@@ -202,7 +203,7 @@ public class MessageUtils {
     public static EventMeshMessage generateAsyncEventMsg(String topic, int i) {
         EventMeshMessage msg = new EventMeshMessage();
         msg.setTopic(topic);
-        msg.getProperties().put("REPLY_TO", "10.36.0.109@ProducerGroup-producerPool-9-access#V1_4_0#CI");
+        msg.getProperties().put("REPLY_TO", "127.0.0.1@ProducerGroup-producerPool-9-access#V1_4_0#CI");
         msg.getProperties().put("TTL", "30000");
         msg.getProperties().put("PROPERTY_MESSAGE_REPLY_TO", "notnull");
         msg.setBody("testAsyncMessage" + i);
@@ -229,9 +230,8 @@ public class MessageUtils {
 
     public static Package askRecommend(UserAgent user) {
         Package msg = new Package();
-        msg.setHeader(new Header(Command.RECOMMEND_REQUEST, 0, "sucess", generateRandomString(seqLength)));
+        msg.setHeader(new Header(Command.RECOMMEND_REQUEST, 0, "success", generateRandomString(seqLength)));
         msg.setBody(user);
         return msg;
     }
 }
-

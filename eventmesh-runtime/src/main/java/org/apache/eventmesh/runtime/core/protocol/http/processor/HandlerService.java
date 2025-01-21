@@ -18,14 +18,16 @@
 package org.apache.eventmesh.runtime.core.protocol.http.processor;
 
 import org.apache.eventmesh.common.Constants;
+import org.apache.eventmesh.common.enums.ConnectionType;
 import org.apache.eventmesh.common.protocol.http.HttpEventWrapper;
 import org.apache.eventmesh.common.protocol.http.common.EventMeshRetCode;
 import org.apache.eventmesh.common.utils.JsonUtils;
 import org.apache.eventmesh.runtime.boot.HTTPTrace;
 import org.apache.eventmesh.runtime.boot.HTTPTrace.TraceOperation;
 import org.apache.eventmesh.runtime.common.EventMeshTrace;
+import org.apache.eventmesh.runtime.constants.EventMeshConstants;
 import org.apache.eventmesh.runtime.core.protocol.http.async.AsyncContext;
-import org.apache.eventmesh.runtime.metrics.http.HTTPMetricsServer;
+import org.apache.eventmesh.runtime.metrics.http.EventMeshHttpMetricsManager;
 import org.apache.eventmesh.runtime.util.HttpResponseUtils;
 import org.apache.eventmesh.runtime.util.RemotingHelper;
 
@@ -40,6 +42,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
 
 import org.slf4j.Logger;
@@ -63,49 +66,54 @@ import com.fasterxml.jackson.core.type.TypeReference;
 
 import lombok.Getter;
 import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public class HandlerService {
 
-    private final Logger httpServerLogger = LoggerFactory.getLogger(this.getClass());
-
-    private final Logger httpLogger = LoggerFactory.getLogger("http");
+    private static final Logger HTTP_LOGGER = LoggerFactory.getLogger(EventMeshConstants.PROTOCOL_HTTP);
 
     private final Map<String, ProcessorWrapper> httpProcessorMap = new ConcurrentHashMap<>();
 
     @Setter
-    private HTTPMetricsServer metrics;
+    private EventMeshHttpMetricsManager metrics;
 
     @Setter
     private HTTPTrace httpTrace;
 
     public DefaultHttpDataFactory defaultHttpDataFactory = new DefaultHttpDataFactory(false);
 
-
     public void init() {
-        httpServerLogger.info("HandlerService start ");
+        log.info("HandlerService start ");
     }
 
-    public void register(HttpProcessor httpProcessor, ThreadPoolExecutor threadPoolExecutor) {
+    public void register(HttpProcessor httpProcessor, Executor threadPoolExecutor) {
         for (String path : httpProcessor.paths()) {
             this.register(path, httpProcessor, threadPoolExecutor);
         }
     }
 
-    public void register(String path, HttpProcessor httpProcessor, ThreadPoolExecutor threadPoolExecutor) {
+    public void register(HttpProcessor httpProcessor) {
+        for (String path : httpProcessor.paths()) {
+            this.register(path, httpProcessor, httpProcessor.executor());
+        }
+    }
+
+    public void register(String path, HttpProcessor httpProcessor, Executor threadPoolExecutor) {
 
         if (httpProcessorMap.containsKey(path)) {
             throw new RuntimeException(String.format("HandlerService path %s repeat, repeat processor is %s ",
                 path, httpProcessor.getClass().getSimpleName()));
         }
         ProcessorWrapper processorWrapper = new ProcessorWrapper();
-        processorWrapper.threadPoolExecutor = threadPoolExecutor;
+        processorWrapper.executor = threadPoolExecutor;
         if (httpProcessor instanceof AsyncHttpProcessor) {
             processorWrapper.async = (AsyncHttpProcessor) httpProcessor;
         }
         processorWrapper.httpProcessor = httpProcessor;
         processorWrapper.traceEnabled = httpProcessor.getClass().getAnnotation(EventMeshTrace.class).isEnable();
         httpProcessorMap.put(path, processorWrapper);
-        httpServerLogger.info("path is {}  processor name is {}", path, httpProcessor.getClass().getSimpleName());
+        log.info("path is {}  processor name is {}", path, httpProcessor.getClass().getSimpleName());
     }
 
     public boolean isProcessorWrapper(HttpRequest httpRequest) {
@@ -139,22 +147,25 @@ public class HandlerService {
             handlerSpecific.ctx = ctx;
             handlerSpecific.traceOperation = traceOperation;
             handlerSpecific.asyncContext = new AsyncContext<>(new HttpEventWrapper(), null, asyncContextCompleteHandler);
-            processorWrapper.threadPoolExecutor.execute(handlerSpecific);
+            processorWrapper.executor.execute(handlerSpecific);
         } catch (Exception e) {
-            httpServerLogger.error(e.getMessage(), e);
+            log.error(e.getMessage(), e);
             this.sendResponse(ctx, httpRequest, HttpResponseUtils.createInternalServerError());
         }
     }
 
     private void sendResponse(ChannelHandlerContext ctx, HttpRequest request, HttpResponse response) {
-        this.sendResponse(ctx, request, response, true);
+        this.sendPersistentResponse(ctx, request, response, true);
     }
 
-    private void sendResponse(ChannelHandlerContext ctx, HttpRequest httpRequest, HttpResponse response, boolean isClose) {
+    /**
+     * persistent connection
+     */
+    private void sendPersistentResponse(ChannelHandlerContext ctx, HttpRequest httpRequest, HttpResponse response, boolean isClose) {
         ReferenceCountUtil.release(httpRequest);
         ctx.writeAndFlush(response).addListener((ChannelFutureListener) f -> {
             if (!f.isSuccess()) {
-                httpLogger.warn("send response to [{}] fail, will close this channel",
+                HTTP_LOGGER.warn("send response to [{}] fail, will close this channel",
                     RemotingHelper.parseChannelRemoteAddr(f.channel()));
                 if (isClose) {
                     f.channel().close();
@@ -163,19 +174,32 @@ public class HandlerService {
         });
     }
 
+    /**
+     * short-lived connection
+     */
+    private void sendShortResponse(ChannelHandlerContext ctx, HttpRequest httpRequest, HttpResponse response) {
+        ReferenceCountUtil.release(httpRequest);
+        ctx.writeAndFlush(response).addListener((ChannelFutureListener) f -> {
+            if (!f.isSuccess()) {
+                HTTP_LOGGER.warn("send response to [{}] with short-lived connection fail, will close this channel",
+                    RemotingHelper.parseChannelRemoteAddr(f.channel()));
+            }
+        }).addListener(ChannelFutureListener.CLOSE);
+    }
+
     private HttpEventWrapper parseHttpRequest(HttpRequest httpRequest) throws IOException {
         HttpEventWrapper httpEventWrapper = new HttpEventWrapper();
         httpEventWrapper.setHttpMethod(httpRequest.method().name());
         httpEventWrapper.setHttpVersion(httpRequest.protocolVersion().protocolName());
         httpEventWrapper.setRequestURI(httpRequest.uri());
 
-        //parse http header
+        // parse http header
         for (String key : httpRequest.headers().names()) {
             httpEventWrapper.getHeaderMap().put(key, httpRequest.headers().get(key));
         }
 
         final long bodyDecodeStart = System.currentTimeMillis();
-        //parse http body
+        // parse http body
         FullHttpRequest fullHttpRequest = (FullHttpRequest) httpRequest;
         final Map<String, Object> bodyMap = new HashMap<>();
         if (HttpMethod.GET == fullHttpRequest.method()) {
@@ -189,10 +213,10 @@ public class HandlerService {
                     byte[] body = new byte[length];
                     fullHttpRequest.content().readBytes(body);
                     Optional
-                        .ofNullable(JsonUtils.deserialize(
+                        .ofNullable(JsonUtils.parseTypeReferenceObject(
                             new String(body, Constants.DEFAULT_CHARSET),
-                            new TypeReference<Map<String, Object>>() {}
-                        ))
+                            new TypeReference<Map<String, Object>>() {
+                            }))
                         .ifPresent(bodyMap::putAll);
                 }
             } else {
@@ -211,13 +235,13 @@ public class HandlerService {
             throw new RuntimeException("UnSupported Method " + fullHttpRequest.method());
         }
 
-        byte[] requestBody = Optional.ofNullable(JsonUtils.serialize(bodyMap))
+        byte[] requestBody = Optional.ofNullable(JsonUtils.toJSONString(bodyMap))
             .map(s -> s.getBytes(StandardCharsets.UTF_8))
             .orElse(new byte[0]);
 
         httpEventWrapper.setBody(requestBody);
 
-        metrics.getSummaryMetrics().recordDecodeTimeCost(System.currentTimeMillis() - bodyDecodeStart);
+        metrics.getHttpMetrics().recordDecodeTimeCost(System.currentTimeMillis() - bodyDecodeStart);
 
         return httpEventWrapper;
     }
@@ -244,7 +268,6 @@ public class HandlerService {
 
         private CloudEvent ce;
 
-
         public void run() {
             String processorKey = "/";
             for (String eventProcessorKey : httpProcessorMap.keySet()) {
@@ -255,7 +278,6 @@ public class HandlerService {
             }
             ProcessorWrapper processorWrapper = HandlerService.this.httpProcessorMap.get(processorKey);
             try {
-                this.preHandler();
                 if (processorWrapper.httpProcessor instanceof AsyncHttpProcessor) {
                     // set actual async request
                     HttpEventWrapper httpEventWrapper = parseHttpRequest(request);
@@ -265,7 +287,11 @@ public class HandlerService {
                 }
                 response = processorWrapper.httpProcessor.handler(request);
 
-                this.postHandler();
+                if (processorWrapper.httpProcessor instanceof ShortHttpProcessor) {
+                    this.postHandlerWithTimeCostRecord(ConnectionType.SHORT_LIVED);
+                    return;
+                }
+                this.postHandlerWithTimeCostRecord(ConnectionType.PERSISTENT);
             } catch (Throwable e) {
                 exception = e;
                 // todo: according exception to generate response
@@ -274,45 +300,38 @@ public class HandlerService {
             }
         }
 
-        private void postHandler() {
-            metrics.getSummaryMetrics().recordHTTPRequest();
-            if (httpLogger.isDebugEnabled()) {
-                httpLogger.debug("{}", request);
-            }
+        private void postHandlerWithTimeCostRecord(ConnectionType type) {
+            metrics.getHttpMetrics().recordHTTPReqResTimeCost(System.currentTimeMillis() - requestTime);
+            HTTP_LOGGER.debug("{}", response);
+            postHandler(type);
+        }
+
+        private void postHandler(ConnectionType type) {
+            metrics.getHttpMetrics().recordHTTPRequest();
+            HTTP_LOGGER.debug("{}", request);
             if (Objects.isNull(response)) {
                 this.response = HttpResponseUtils.createSuccess();
             }
             this.traceOperation.endTrace(ce);
-            HandlerService.this.sendResponse(ctx, this.request, this.response);
-        }
-
-        private void preHandler() {
-            metrics.getSummaryMetrics().recordHTTPReqResTimeCost(System.currentTimeMillis() - requestTime);
-            if (httpLogger.isDebugEnabled()) {
-                httpLogger.debug("{}", response);
+            if (type == ConnectionType.PERSISTENT) {
+                HandlerService.this.sendResponse(ctx, this.request, this.response);
+            } else if (type == ConnectionType.SHORT_LIVED) {
+                sendShortResponse(ctx, this.request, this.response);
             }
         }
 
+
         private void error() {
-            httpServerLogger.error(this.exception.getMessage(), this.exception);
+            log.error(this.exception.getMessage(), this.exception);
             this.traceOperation.exceptionTrace(this.exception, this.traceMap);
-            metrics.getSummaryMetrics().recordHTTPDiscard();
-            metrics.getSummaryMetrics().recordHTTPReqResTimeCost(System.currentTimeMillis() - requestTime);
+            metrics.getHttpMetrics().recordHTTPDiscard();
+            metrics.getHttpMetrics().recordHTTPReqResTimeCost(System.currentTimeMillis() - requestTime);
             HandlerService.this.sendResponse(ctx, this.request, this.response);
-        }
-
-
-        public void setResponseJsonBody(String body) {
-            this.sendResponse(HttpResponseUtils.setResponseJsonBody(body, ctx));
-        }
-
-        public void setResponseTextBody(String body) {
-            this.sendResponse(HttpResponseUtils.setResponseTextBody(body, ctx));
         }
 
         public void sendResponse(HttpResponse response) {
             this.response = response;
-            this.postHandler();
+            this.postHandler(ConnectionType.PERSISTENT);
         }
 
         public void sendResponse(Map<String, Object> responseHeaderMap, Map<String, Object> responseBodyMap) {
@@ -320,7 +339,7 @@ public class HandlerService {
                 HttpEventWrapper responseWrapper = asyncContext.getRequest().createHttpResponse(responseHeaderMap, responseBodyMap);
                 asyncContext.onComplete(responseWrapper);
                 this.response = asyncContext.getResponse().httpResponse();
-                this.postHandler();
+                this.postHandler(ConnectionType.PERSISTENT);
             } catch (Exception e) {
                 this.exception = e;
                 // todo: according exception to generate response
@@ -332,11 +351,11 @@ public class HandlerService {
 
         // for error response
         public void sendErrorResponse(EventMeshRetCode retCode, Map<String, Object> responseHeaderMap, Map<String, Object> responseBodyMap,
-                                      Map<String, Object> traceMap) {
+            Map<String, Object> traceMap) {
             this.traceMap = traceMap;
             try {
-                responseBodyMap.put("retCode", retCode.getRetCode());
-                responseBodyMap.put("retMsg", retCode.getErrMsg());
+                responseBodyMap.put(EventMeshConstants.RET_CODE, retCode.getRetCode());
+                responseBodyMap.put(EventMeshConstants.RET_MSG, retCode.getErrMsg());
                 HttpEventWrapper responseWrapper = asyncContext.getRequest().createHttpResponse(responseHeaderMap, responseBodyMap);
                 asyncContext.onComplete(responseWrapper);
                 this.exception = new RuntimeException(retCode.getErrMsg());
@@ -354,15 +373,14 @@ public class HandlerService {
          * @param count
          */
         public void recordSendBatchMsgFailed(int count) {
-            metrics.getSummaryMetrics().recordSendBatchMsgFailed(1);
+            metrics.getHttpMetrics().recordSendBatchMsgFailed(1);
         }
 
     }
 
-
     private static class ProcessorWrapper {
 
-        private ThreadPoolExecutor threadPoolExecutor;
+        private Executor executor;
 
         private HttpProcessor httpProcessor;
 

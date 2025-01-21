@@ -17,14 +17,36 @@
 
 package org.apache.eventmesh.trace.jaeger.config;
 
-import org.junit.Assert;
-import org.junit.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import org.apache.eventmesh.trace.api.TracePluginFactory;
+import org.apache.eventmesh.trace.api.config.ExporterConfiguration;
+import org.apache.eventmesh.trace.jaeger.JaegerTraceService;
+
+import org.junit.jupiter.api.Test;
 
 public class JaegerConfigurationTest {
 
     @Test
     public void testGetConfiguration() {
-        Assert.assertEquals("localhost", JaegerConfiguration.getEventMeshJaegerIp());
-        Assert.assertEquals(14250, JaegerConfiguration.getEventMeshJaegerPort());
+        JaegerTraceService jaegerTrace =
+            (JaegerTraceService) TracePluginFactory.getEventMeshTraceService("jaeger");
+
+        JaegerConfiguration config = jaegerTrace.getClientConfiguration();
+        assertClientConfig(config);
+        ExporterConfiguration exporterConfig = jaegerTrace.getExporterConfiguration();
+        assertBaseConfig(exporterConfig);
+    }
+
+    private void assertClientConfig(JaegerConfiguration config) {
+        assertEquals("localhost", config.getEventMeshJaegerIp());
+        assertEquals(14250, config.getEventMeshJaegerPort());
+    }
+
+    private void assertBaseConfig(ExporterConfiguration config) {
+        assertEquals(816, config.getEventMeshTraceMaxExportSize());
+        assertEquals(1816, config.getEventMeshTraceMaxQueueSize());
+        assertEquals(2816, config.getEventMeshTraceExportTimeout());
+        assertEquals(3816, config.getEventMeshTraceExportInterval());
     }
 }

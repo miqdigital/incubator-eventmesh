@@ -17,49 +17,48 @@
 
 package org.apache.eventmesh.runtime.core.protocol.grpc.service;
 
+import org.apache.eventmesh.common.protocol.grpc.cloudevents.CloudEvent;
+import org.apache.eventmesh.common.protocol.grpc.cloudevents.HeartbeatServiceGrpc;
+import org.apache.eventmesh.common.protocol.grpc.common.EventMeshCloudEventUtils;
 import org.apache.eventmesh.common.protocol.grpc.common.StatusCode;
-import org.apache.eventmesh.common.protocol.grpc.protos.Heartbeat;
-import org.apache.eventmesh.common.protocol.grpc.protos.HeartbeatServiceGrpc;
-import org.apache.eventmesh.common.protocol.grpc.protos.Response;
 import org.apache.eventmesh.runtime.boot.EventMeshGrpcServer;
 import org.apache.eventmesh.runtime.constants.EventMeshConstants;
 import org.apache.eventmesh.runtime.core.protocol.grpc.processor.HeartbeatProcessor;
 
 import java.util.concurrent.ThreadPoolExecutor;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import io.grpc.stub.StreamObserver;
 
-public class HeartbeatService extends HeartbeatServiceGrpc.HeartbeatServiceImplBase {
+import lombok.extern.slf4j.Slf4j;
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(HeartbeatService.class);
+@Slf4j
+public class HeartbeatService extends HeartbeatServiceGrpc.HeartbeatServiceImplBase {
 
     private final transient EventMeshGrpcServer eventMeshGrpcServer;
 
     private final transient ThreadPoolExecutor threadPoolExecutor;
 
     public HeartbeatService(final EventMeshGrpcServer eventMeshGrpcServer,
-                            final ThreadPoolExecutor threadPoolExecutor) {
+        final ThreadPoolExecutor threadPoolExecutor) {
         this.eventMeshGrpcServer = eventMeshGrpcServer;
         this.threadPoolExecutor = threadPoolExecutor;
     }
 
-    public void heartbeat(Heartbeat request, StreamObserver<Response> responseObserver) {
-        LOGGER.info("cmd={}|{}|client2eventMesh|from={}|to={}",
-                "heartbeat", EventMeshConstants.PROTOCOL_GRPC, request.getHeader().getIp(),
-                eventMeshGrpcServer.getEventMeshGrpcConfiguration().eventMeshIp);
+    @Override
+    public void heartbeat(CloudEvent request, StreamObserver<CloudEvent> responseObserver) {
+        log.info("cmd={}|{}|client2eventMesh|from={}|to={}",
+            "heartbeat", EventMeshConstants.PROTOCOL_GRPC, EventMeshCloudEventUtils.getIp(request),
+            eventMeshGrpcServer.getEventMeshGrpcConfiguration().getEventMeshIp());
 
-        EventEmitter<Response> emitter = new EventEmitter<>(responseObserver);
+        EventEmitter<CloudEvent> emitter = new EventEmitter<>(responseObserver);
         threadPoolExecutor.submit(() -> {
             HeartbeatProcessor heartbeatProcessor = new HeartbeatProcessor(eventMeshGrpcServer);
             try {
                 heartbeatProcessor.process(request, emitter);
             } catch (Exception e) {
-                LOGGER.error("Error code {}, error message {}", StatusCode.EVENTMESH_HEARTBEAT_ERR.getRetCode(),
-                        StatusCode.EVENTMESH_HEARTBEAT_ERR.getErrMsg(), e);
-                ServiceUtils.sendRespAndDone(StatusCode.EVENTMESH_HEARTBEAT_ERR, e.getMessage(), emitter);
+                log.error("Error code {}, error message {}", StatusCode.EVENTMESH_HEARTBEAT_ERR.getRetCode(),
+                    StatusCode.EVENTMESH_HEARTBEAT_ERR.getErrMsg(), e);
+                ServiceUtils.sendResponseCompleted(StatusCode.EVENTMESH_HEARTBEAT_ERR, e.getMessage(), emitter);
             }
         });
     }

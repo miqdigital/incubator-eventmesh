@@ -23,16 +23,14 @@ import org.apache.eventmesh.runtime.client.common.MessageUtils;
 import org.apache.eventmesh.runtime.client.common.UserAgentUtils;
 import org.apache.eventmesh.runtime.client.impl.PubClientImpl;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public class SyncPubClient {
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(SyncPubClient.class);
 
     public static void main(String[] args) throws Exception {
         try (PubClientImpl pubClient =
-                     new PubClientImpl("localhost", 10000, UserAgentUtils.createUserAgent())) {
+            new PubClientImpl("localhost", 10000, UserAgentUtils.createUserAgent())) {
             pubClient.init();
             pubClient.heartbeat();
 
@@ -40,10 +38,7 @@ public class SyncPubClient {
                 Package rr = pubClient.rr(MessageUtils.rrMesssage("TEST-TOPIC-TCP-SYNC", i), 3000);
                 if (rr.getBody() instanceof EventMeshMessage) {
                     String body = ((EventMeshMessage) rr.getBody()).getBody();
-                    if (LOGGER.isInfoEnabled()) {
-                        LOGGER.info("rrMessage: " + body + "             "
-                                + "rr-reply-------------------------------------------------" + rr);
-                    }
+                    log.info("rrMessage: " + body + "             " + "rr-reply-------------------------------------------------" + rr);
                 }
             }
         }

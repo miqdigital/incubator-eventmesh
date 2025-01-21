@@ -1,38 +1,36 @@
 /*
- *  Licensed to the Apache Software Foundation (ASF) under one or more
- *  contributor license agreements.  See the NOTICE file distributed with
- *  this work for additional information regarding copyright ownership.
- *  The ASF licenses this file to You under the Apache License, Version 2.0
- *  (the "License"); you may not use this file except in compliance with
- *  the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *   Unless required by applicable law or agreed to in writing, software
- *   distributed under the License is distributed on an "AS IS" BASIS,
- *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *   See the License for the specific language governing permissions and
- *   limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package org.apache.eventmesh.trace.pinpoint.exporter;
 
-import static org.apache.eventmesh.trace.pinpoint.config.PinpointConfiguration.getAgentId;
-import static org.apache.eventmesh.trace.pinpoint.config.PinpointConfiguration.getAgentName;
-import static org.apache.eventmesh.trace.pinpoint.config.PinpointConfiguration.getApplicationName;
-import static org.apache.eventmesh.trace.pinpoint.config.PinpointConfiguration.getGrpcTransportConfig;
-
 import org.apache.eventmesh.common.utils.RandomStringUtils;
-
+import org.apache.eventmesh.trace.api.TracePluginFactory;
+import org.apache.eventmesh.trace.pinpoint.PinpointTraceService;
+import org.apache.eventmesh.trace.pinpoint.config.PinpointConfiguration;
+ 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
-
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-
+ 
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+ 
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.SpanKind;
@@ -45,47 +43,57 @@ import io.opentelemetry.sdk.trace.data.EventData;
 import io.opentelemetry.sdk.trace.data.LinkData;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.data.StatusData;
-
+ 
 public class PinpointSpanExporterTest {
 
     private PinpointSpanExporter exporter;
+    public static final String AGENT_ID = "test";
 
-    @Before
+    @BeforeEach
     public void setup() {
+        PinpointTraceService pinpointTrace =
+            (PinpointTraceService) TracePluginFactory.getEventMeshTraceService("pinpoint");
+
+        PinpointConfiguration config = pinpointTrace.getClientConfiguration();
+
         this.exporter = new PinpointSpanExporter(
-            getAgentId(),
-            getAgentName(),
-            getApplicationName(),
-            getGrpcTransportConfig()
-        );
+            config.getAgentId(),
+            config.getAgentName(),
+            config.getApplicationName(),
+            config.getGrpcTransportConfig());
     }
 
     @Test
     public void exportTest() {
         Collection<SpanData> spans = new ArrayList<>();
-        Assert.assertEquals(CompletableResultCode.ofSuccess(), exporter.export(spans));
+        Assertions.assertEquals(CompletableResultCode.ofSuccess(), exporter.export(spans));
 
         spans.add(null);
-        Assert.assertEquals(CompletableResultCode.ofSuccess(), exporter.export(spans));
+        Assertions.assertEquals(CompletableResultCode.ofSuccess(), exporter.export(spans));
 
         spans.clear();
         spans.add(new SpanDateTest());
-        Assert.assertEquals(CompletableResultCode.ofSuccess(), exporter.export(spans));
+        Assertions.assertEquals(CompletableResultCode.ofSuccess(), exporter.export(spans));
+
+        spans.clear();
+        spans.add(new SpanDateTest());
+        spans.add(new ChildSpanDateTest());
+        Assertions.assertEquals(CompletableResultCode.ofSuccess(), exporter.export(spans));
     }
 
     @Test
     public void flushTest() {
-        Assert.assertEquals(CompletableResultCode.ofSuccess(), exporter.flush());
+        Assertions.assertEquals(CompletableResultCode.ofSuccess(), exporter.flush());
     }
 
     @Test
     public void shutdownTest() {
-        Assert.assertEquals(CompletableResultCode.ofSuccess(), exporter.shutdown());
+        Assertions.assertEquals(CompletableResultCode.ofSuccess(), exporter.shutdown());
     }
 
     /**
      * for test
-     */
+    */
     private static class SpanDateTest implements SpanData {
 
         @Override
@@ -96,6 +104,89 @@ public class PinpointSpanExporterTest {
         @Override
         public SpanContext getParentSpanContext() {
             return null;
+        }
+
+        @Override
+        public Resource getResource() {
+            return null;
+        }
+
+        @Override
+        public InstrumentationLibraryInfo getInstrumentationLibraryInfo() {
+            return null;
+        }
+
+        @Override
+        public String getName() {
+            return this.getClass().getName();
+        }
+
+        @Override
+        public SpanKind getKind() {
+            return SpanKind.INTERNAL;
+        }
+
+        @Override
+        public long getStartEpochNanos() {
+            return System.nanoTime();
+        }
+
+        @Override
+        public Attributes getAttributes() {
+            return null;
+        }
+
+        @Override
+        public List<EventData> getEvents() {
+            return null;
+        }
+
+        @Override
+        public List<LinkData> getLinks() {
+            return null;
+        }
+
+        @Override
+        public StatusData getStatus() {
+            return StatusData.ok();
+        }
+
+        @Override
+        public long getEndEpochNanos() {
+            return System.nanoTime();
+        }
+
+        @Override
+        public boolean hasEnded() {
+            return true;
+        }
+
+        @Override
+        public int getTotalRecordedEvents() {
+            return 0;
+        }
+
+        @Override
+        public int getTotalRecordedLinks() {
+            return 0;
+        }
+
+        @Override
+        public int getTotalAttributeCount() {
+            return 0;
+        }
+    }
+
+    private static class ChildSpanDateTest implements SpanData {
+
+        @Override
+        public SpanContext getSpanContext() {
+            return new SpanContextTest();
+        }
+
+        @Override
+        public SpanContext getParentSpanContext() {
+            return new SpanContextTest();
         }
 
         @Override
